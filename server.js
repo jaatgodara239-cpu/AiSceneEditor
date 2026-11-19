@@ -136,14 +136,29 @@ ${opts.topic}
       const scene = scenes[i];
       const stepBase = 20 + Math.floor((i / scenes.length) * 65);
 
-      // 3A. Narration TTS
+      // 3A. Narration TTS (Fixed: speech_metadata goes inside annotations)
       update(stepBase, `Scene ${i + 1}/${scenes.length}: Voiceover...`);
       const ttsInteraction = await ai.interactions.create({
         model: "gemini-3.8-flash-tts",
-        input: [{ type: "user_input", content: [{ type: "text", text: scene.narration }] }],
+        input: [
+          {
+            type: "user_input",
+            content: [
+              {
+                type: "text",
+                text: scene.narration,
+                annotations: [
+                  {
+                    type: "speech_metadata",
+                    style: storyboard.voiceStyle || "engaging storyteller"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
         generation_config: {
-          speech_config: [{ voice: opts.voice || "Puck" }],
-          speech_metadata: { style: storyboard.voiceStyle || "engaging storyteller" }
+          speech_config: [{ voice: opts.voice || "Puck" }]
         }
       });
 
@@ -154,12 +169,12 @@ ${opts.topic}
 
       const durationSec = await getAudioDuration(wavPath);
 
-      // 3B. Static Scene Image
+      // 3B. Static Scene Image via Gemini Nano Banana 2.1
       update(stepBase + 3, `Scene ${i + 1}/${scenes.length}: Scene frame...`);
       const imgInput = [
         {
           type: "text",
-          text: `${scene.imagePrompt}. Style: ${opts.visualStyle}. Aspect ratio ${opts.aspectRatio}. No text or subtitles in image.`
+          text: `${scene.imagePrompt}. Style: ${opts.visualStyle}. Clean composition, no text or subtitles in image.`
         }
       ];
       if (refImageBase64) {
@@ -167,16 +182,22 @@ ${opts.topic}
       }
 
       const imgInteraction = await ai.interactions.create({
-        model: "gemini-3.1-flash-image",
+        model: "gemini-nano-banana-2.1",
         input: imgInput,
-        response_modalities: ["image"]
+        response_format: {
+          type: "image",
+          aspect_ratio: opts.aspectRatio,
+          image_size: "1K"
+        }
       });
 
-      const imgOutput = (imgInteraction.outputs || []).find((o) => o.type === "image");
-      if (!imgOutput?.data) throw new Error(`Image failed on scene ${i + 1}`);
+      const imgData =
+        imgInteraction.output_image?.data ||
+        (imgInteraction.outputs || []).find((o) => o.type === "image")?.data;
+      if (!imgData) throw new Error(`Image failed on scene ${i + 1}`);
 
       const imgPath = path.join(workDir, `frame_${i}.png`);
-      fs.writeFileSync(imgPath, Buffer.from(imgOutput.data, "base64"));
+      fs.writeFileSync(imgPath, Buffer.from(imgData, "base64"));
 
       // 3C. Mix Narration + Optional Scene SFX + Sliced BGM Window
       update(stepBase + 6, `Scene ${i + 1}/${scenes.length}: Mixing audio & motion...`);
@@ -194,7 +215,6 @@ ${opts.topic}
       }
 
       if (bgmPath) {
-        // Loop BGM seamlessly and slice the exact window for this scene
         inputs.push("-stream_loop", "-1", "-ss", cumulativeSec.toFixed(2), "-t", durationSec.toFixed(2), "-i", bgmPath);
         const bgmIdx = inputs.length / 2 - 1;
         filterParts.push(`[${bgmIdx}:a]volume=0.20[bgm]`);
@@ -311,4 +331,4 @@ app.get("/api/status/:jobId", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-    
+        
