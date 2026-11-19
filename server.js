@@ -51,18 +51,61 @@ async function getMediaInfo(filePath) {
   };
 }
 
-function resolveSfxPath(sfxName) {
-  if (!sfxName || sfxName === "none") return null;
-  const safeName = path.basename(sfxName).replace(/[^a-zA-Z0-9_-]/g, "");
-  for (const ext of [".mp3", ".wav", ".ogg"]) {
-    const candidate = path.join(process.cwd(), "sfx", `${safeName}${ext}`);
-    if (fs.existsSync(candidate)) return candidate;
+// Generate real, audible SFX files using FFmpeg audio synthesis (no external MP3s required)
+async function ensureSynthesizedSfx(sfxDir) {
+  fs.mkdirSync(sfxDir, { recursive: true });
+
+  const specs = {
+    whoosh: [
+      "-f", "lavfi", "-t", "0.45", "-i", "anoisesrc=color=white:amplitude=0.35",
+      "-af", "bandpass=f=450:width_type=q:w=1.2,afade=t=in:st=0:d=0.18,afade=t=out:st=0.18:d=0.27,volume=2.4",
+      "-ar", "44100", "-ac", "2"
+    ],
+    impact: [
+      "-f", "lavfi", "-t", "0.5", "-i", "sine=frequency=95:beep_factor=0.5",
+      "-af", "lowpass=f=160,afade=t=in:st=0:d=0.01,afade=t=out:st=0.05:d=0.45,volume=2.2",
+      "-ar", "44100", "-ac", "2"
+    ],
+    tick: [
+      "-f", "lavfi", "-t", "0.12", "-i", "sine=frequency=1400",
+      "-af", "highpass=f=800,afade=t=in:st=0:d=0.005,afade=t=out:st=0.01:d=0.11,volume=1.4",
+      "-ar", "44100", "-ac", "2"
+    ],
+    riser: [
+      "-f", "lavfi", "-t", "0.75", "-i", "anoisesrc=color=pink:amplitude=0.25",
+      "-af", "highpass=f=250,afade=t=in:st=0:d=0.6,afade=t=out:st=0.62:d=0.13,volume=2.2",
+      "-ar", "44100", "-ac", "2"
+    ],
+    pop: [
+      "-f", "lavfi", "-t", "0.18", "-i", "sine=frequency=520",
+      "-af", "afade=t=in:st=0:d=0.01,afade=t=out:st=0.02:d=0.16,volume=1.5",
+      "-ar", "44100", "-ac", "2"
+    ]
+  };
+
+  for (const [name, args] of Object.entries(specs)) {
+    const outFile = path.join(sfxDir, `${name}.wav`);
+    if (!fs.existsSync(outFile)) {
+      await runFFmpeg([...args, outFile]);
+    }
   }
-  return null;
 }
 
-// Wrap text cleanly into max lines for FFmpeg drawtext
-function wrapBannerText(text, maxCharsPerLine = 26, maxLines = 2) {
+function resolveSfxPath(sfxName, synthSfxDir) {
+  if (!sfxName || sfxName === "none") return null;
+  const safeName = path.basename(sfxName).replace(/[^a-zA-Z0-9_-]/g, "");
+
+  // Prefer user's custom sfx/ files if present, otherwise use synthesized WAVs
+  for (const ext of [".mp3", ".wav", ".ogg"]) {
+    const custom = path.join(process.cwd(), "sfx", `${safeName}${ext}`);
+    if (fs.existsSync(custom)) return custom;
+  }
+
+  const synth = path.join(synthSfxDir, `${safeName}.wav`);
+  return fs.existsSync(synth) ? synth : null;
+}
+
+function wrapBannerText(text, maxCharsPerLine = 24, maxLines = 2) {
   const words = String(text || "")
     .replace(/['":\\]/g, "")
     .replace(/\s+/g, " ")
@@ -103,35 +146,35 @@ function extractAudioBase64(interaction) {
   return null;
 }
 
-// 1. Endpoint for Gemini to invent a Viral Shorts Template JSON
 app.post("/api/invent-template", async (req, res) => {
   try {
     const ai = getAI();
     const { niche, clipCount } = req.body || {};
     const prompt = `
-You are a viral YouTube Shorts editor who engineers 10M+ view Shorts from raw clips so they have high retention and transformative editorial structure.
-Design a viral Shorts editing template for:
+You are a viral YouTube Shorts editor who designs high-retention edits from raw clips.
+Create a dynamic Shorts editing template for:
 Niche/Vibe: ${niche || "Funny / shocking / unexpected moments"}
 Number of raw clips uploaded: ${clipCount || 2}
 
-Choose ONE layout from these exact options:
-- "banner_top_white": High-contrast white top header card with bold black hook text, framed clip in center, clean bottom reaction bar (great for mobile scroll-stopping).
-- "banner_dark_cinema": Sleek dark charcoal top & bottom framing with bold white/yellow hook text and subtle zoom motion.
-- "split_zoom_focus": Top half shows full clip, bottom half shows zoomed-in action focus + centered hook badge.
-- "full_punch_cuts": Full-screen 9:16 dynamic crop with bold floating hook text and rapid zoom punches.
+Choose ONE layout:
+- "banner_top_white": High-contrast white top header card with bold black hook text, framed clip in center, clean bottom tag.
+- "banner_dark_cinema": Dark top/bottom framing with bold white/yellow hook text and motion.
+- "split_zoom_focus": Top half shows full clip, bottom half shows zoomed-in action focus + hook badge.
+- "full_punch_cuts": Full-screen 9:16 dynamic crop with bold hook text and rapid motion cuts.
 
-Return ONLY valid JSON (no markdown fences):
+Available SFX cues: "whoosh", "impact", "tick", "riser", "pop".
+
+Return ONLY valid JSON:
 {
-  "templateName": "Short catchy name for this template",
+  "templateName": "Short catchy name",
   "layout": "banner_top_white",
-  "topHookText": "Punchy 4-8 word curiosity/shock hook in ALL CAPS or Title Case",
-  "bottomTagText": "Short 2-5 word payoff/reaction tag",
-  "cutDurationSec": 2.2,
-  "zoomSpeed": 0.08,
-  "contrastBoost": 1.06,
-  "saturationBoost": 1.12,
-  "voiceHookLine": "Optional 1-sentence energetic spoken intro hook (or empty string if pure clip audio)",
-  "beatSfx": ["whoosh", "impact", "none", "riser"]
+  "topHookText": "Punchy 4-7 word hook",
+  "bottomTagText": "Short 2-4 word tag",
+  "cutDurationSec": 2.0,
+  "contrastBoost": 1.08,
+  "saturationBoost": 1.15,
+  "voiceHookLine": "Punchy 1-sentence opening hook",
+  "beatSfx": ["whoosh", "impact", "pop", "riser"]
 }
 `;
 
@@ -149,9 +192,9 @@ Return ONLY valid JSON (no markdown fences):
   }
 });
 
-// 2. Render Edited Short from Raw Clips + Template JSON
 async function renderShortJob(jobId, clipFiles, template, options) {
   const workDir = `/tmp/job_${jobId}`;
+  const synthSfxDir = path.join(workDir, "synth_sfx");
   fs.mkdirSync(workDir, { recursive: true });
 
   const update = (progress, status, extra = {}) => {
@@ -159,6 +202,9 @@ async function renderShortJob(jobId, clipFiles, template, options) {
   };
 
   try {
+    update(8, "Synthesizing sound effects & preparing edit...");
+    await ensureSynthesizedSfx(synthSfxDir);
+
     const outW = 720;
     const outH = 1280;
     const allowedLayouts = new Set([
@@ -168,18 +214,20 @@ async function renderShortJob(jobId, clipFiles, template, options) {
       "full_punch_cuts"
     ]);
     const layout = allowedLayouts.has(template.layout) ? template.layout : "banner_top_white";
-    const cutSec = Math.min(5.0, Math.max(1.2, Number(template.cutDurationSec) || 2.2));
-    const contrast = Math.min(1.25, Math.max(0.95, Number(template.contrastBoost) || 1.06));
-    const saturation = Math.min(1.35, Math.max(0.9, Number(template.saturationBoost) || 1.12));
+    const cutSec = Math.min(4.5, Math.max(1.2, Number(template.cutDurationSec) || 2.0));
+    const contrast = Math.min(1.25, Math.max(0.95, Number(template.contrastBoost) || 1.08));
+    const saturation = Math.min(1.35, Math.max(0.9, Number(template.saturationBoost) || 1.15));
     const topHook = wrapBannerText(template.topHookText || "WAIT FOR THE END", 24, 2);
     const bottomTag = wrapBannerText(template.bottomTagText || "", 28, 1);
-    const beatSfxList = Array.isArray(template.beatSfx) ? template.beatSfx : ["whoosh"];
+    const beatSfxList =
+      Array.isArray(template.beatSfx) && template.beatSfx.length
+        ? template.beatSfx
+        : ["whoosh", "impact", "pop", "riser"];
 
-    // Optional Gemini TTS Voice Hook on Beat 1
     let voiceHookPath = null;
     if (options.useVoiceHook && template.voiceHookLine && template.voiceHookLine.trim()) {
       try {
-        update(10, "Generating AI voice hook...");
+        update(14, "Generating AI voice hook...");
         const ai = getAI();
         const tts = await ai.interactions.create({
           model: "gemini-3.8-flash-tts",
@@ -208,8 +256,7 @@ async function renderShortJob(jobId, clipFiles, template, options) {
       }
     }
 
-    // Slice uploaded raw clips into beat-sized segments (max ~24s total Short)
-    update(20, "Analyzing & slicing raw clips into viral beats...");
+    update(20, "Slicing raw clips into high-retention beats...");
     const rawSlices = [];
     let totalTargetSec = 0;
     const maxShortSec = 26;
@@ -241,16 +288,21 @@ async function renderShortJob(jobId, clipFiles, template, options) {
 
     for (let i = 0; i < rawSlices.length; i++) {
       const slice = rawSlices[i];
-      const pct = 25 + Math.floor((i / rawSlices.length) * 60);
-      update(pct, `Rendering beat ${i + 1}/${rawSlices.length} (${layout})...`);
+      const sfxKey = beatSfxList[i % beatSfxList.length];
+      const pct = 25 + Math.floor((i / rawSlices.length) * 62);
+      update(pct, `Editing beat ${i + 1}/${rawSlices.length} + SFX (${sfxKey})...`);
 
       const segOut = path.join(workDir, `beat_${i}.mp4`);
       const zoomDir = i % 2 === 0 ? 1 : -1;
-      const padScale = 1.12;
-
-      // Build layout-specific visual filter graph
-      let vf = "";
+      const padScale = 1.14;
       const colorGrade = `eq=contrast=${contrast}:saturation=${saturation}`;
+
+      // Subtle retention progress bar at the very top (0px -> 720px across the Short)
+      const startFrac = (i / rawSlices.length).toFixed(4);
+      const endFrac = ((i + 1) / rawSlices.length).toFixed(4);
+      const barExpr = `${outW}*(${startFrac}+(${endFrac}-${startFrac})*(t/${slice.duration.toFixed(3)}))`;
+      const progressBar = `,drawbox=x=0:y=0:w='${barExpr}':h=10:color=#ef4444:t=fill`;
+
       const drawTopText = topHook
         ? `,drawtext=fontfile=${FONT_PATH}:text='${topHook}':fontcolor=${
             layout === "banner_top_white" ? "black" : "white"
@@ -264,8 +316,8 @@ async function renderShortJob(jobId, clipFiles, template, options) {
           }:fontsize=32:x=(w-text_w)/2:y=h-120`
         : "";
 
+      let vf = "";
       if (layout === "banner_top_white") {
-        // High-contrast white top & bottom studio banner + centered 720x820 dynamic video box
         const boxH = 820;
         const scaledW = Math.round(outW * padScale);
         const scaledH = Math.round(boxH * padScale);
@@ -279,7 +331,7 @@ async function renderShortJob(jobId, clipFiles, template, options) {
         vf =
           `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade}[vid];` +
           `color=c=white:s=${outW}x${outH}:d=${slice.duration}[bg];` +
-          `[bg][vid]overlay=0:230${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+          `[bg][vid]overlay=0:230${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
       } else if (layout === "banner_dark_cinema") {
         const boxH = 840;
         const scaledW = Math.round(outW * padScale);
@@ -294,17 +346,15 @@ async function renderShortJob(jobId, clipFiles, template, options) {
         vf =
           `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade}[vid];` +
           `color=c=0x0b0d12:s=${outW}x${outH}:d=${slice.duration}[bg];` +
-          `[bg][vid]overlay=0:220${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+          `[bg][vid]overlay=0:220${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
       } else if (layout === "split_zoom_focus") {
-        // Top half: full scene; Bottom half: tight action punch-in
         const halfH = outH / 2;
         vf =
           `[0:v]split=2[v1][v2];` +
           `[v1]scale=${outW}:${halfH}:force_original_aspect_ratio=increase,crop=${outW}:${halfH},${colorGrade}[top];` +
           `[v2]scale=${Math.round(outW * 1.45)}:${Math.round(halfH * 1.45)}:force_original_aspect_ratio=increase,crop=${outW}:${halfH},${colorGrade}[bot];` +
-          `[top][bot]vstack=inputs=2,drawbox=x=24:y=65:w=${outW - 48}:h=130:color=black@0.75:t=fill${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+          `[top][bot]vstack=inputs=2,drawbox=x=24:y=65:w=${outW - 48}:h=130:color=black@0.75:t=fill${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
       } else {
-        // full_punch_cuts
         const scaledW = Math.round(outW * 1.15);
         const scaledH = Math.round(outH * 1.15);
         const dx = scaledW - outW;
@@ -316,16 +366,15 @@ async function renderShortJob(jobId, clipFiles, template, options) {
 
         vf =
           `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade},` +
-          `drawbox=x=24:y=65:w=${outW - 48}:h=135:color=black@0.72:t=fill${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+          `drawbox=x=24:y=65:w=${outW - 48}:h=135:color=black@0.72:t=fill${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
       }
 
-      // Build audio mix (original clip audio or silence + beat SFX + optional voice hook on beat 0)
       const ffInputs = ["-ss", slice.start.toFixed(2), "-t", slice.duration.toFixed(2), "-i", slice.srcPath];
       const audioFilters = [];
       const mixLabels = [];
 
       if (slice.hasAudio) {
-        audioFilters.push(`[0:a]aresample=44100,volume=0.85[basea]`);
+        audioFilters.push(`[0:a]aresample=44100,volume=0.8[basea]`);
         mixLabels.push("[basea]");
       } else {
         ffInputs.push("-f", "lavfi", "-t", slice.duration.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo");
@@ -333,19 +382,18 @@ async function renderShortJob(jobId, clipFiles, template, options) {
         mixLabels.push("[basea]");
       }
 
-      const sfxKey = beatSfxList[i % beatSfxList.length];
-      const sfxPath = resolveSfxPath(sfxKey);
+      const sfxPath = resolveSfxPath(sfxKey, synthSfxDir);
       if (sfxPath) {
         const sfxIdx = ffInputs.filter((x) => x === "-i").length;
         ffInputs.push("-i", sfxPath);
-        audioFilters.push(`[${sfxIdx}:a]aresample=44100,volume=0.55[sfxa]`);
+        audioFilters.push(`[${sfxIdx}:a]aresample=44100,volume=0.95[sfxa]`);
         mixLabels.push("[sfxa]");
       }
 
       if (i === 0 && voiceHookPath) {
         const vIdx = ffInputs.filter((x) => x === "-i").length;
         ffInputs.push("-i", voiceHookPath);
-        audioFilters.push(`[${vIdx}:a]aresample=44100,volume=1.15[vhook]`);
+        audioFilters.push(`[${vIdx}:a]aresample=44100,volume=1.2[vhook]`);
         mixLabels.push("[vhook]");
       }
 
@@ -369,7 +417,6 @@ async function renderShortJob(jobId, clipFiles, template, options) {
       renderedSegments.push(segOut);
     }
 
-    // Concatenate all beats into fresh MP4
     update(90, "Exporting final Short MP4...");
     const concatPath = path.join(workDir, "concat.txt");
     fs.writeFileSync(concatPath, renderedSegments.map((p) => `file '${p}'`).join("\n"));
@@ -430,4 +477,4 @@ app.get("/api/status/:jobId", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Shorts Template Studio running on ${PORT}`));
-      
+                                  
