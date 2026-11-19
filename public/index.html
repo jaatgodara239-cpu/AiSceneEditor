@@ -11,7 +11,7 @@
     h1 { font-size: 1.3rem; margin: 0 0 4px; }
     p.sub { color: #94a3b8; font-size: 0.85rem; margin: 0 0 16px; }
     label { display: block; font-size: 0.82rem; font-weight: 600; margin: 12px 0 5px; color: #cbd5e1; }
-    input, select, textarea {
+    input, select {
       width: 100%; padding: 10px 12px; border-radius: 10px;
       border: 1px solid #2c3444; background: #0b0d12; color: #fff; font-size: 0.92rem;
     }
@@ -28,23 +28,45 @@
     .bar-bg { height: 8px; background: #252b38; border-radius: 99px; overflow: hidden; margin: 8px 0; }
     .bar-fill { height: 100%; width: 0%; background: #22c55e; transition: width 0.3s; }
     video { width: 100%; border-radius: 10px; margin-top: 10px; background: #000; }
-    a.dl { display: block; text-align: center; margin-top: 10px; padding: 12px; background: #3b82f6; color: #fff; font-weight: 700; border-radius: 10px; text-decoration: none; }
-    .check-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 0.88rem; }
-    .check-row input { width: auto; }
+    .clip-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid #1e293b; }
+    a.dl { display: block; text-align: center; margin-top: 8px; padding: 11px; background: #3b82f6; color: #fff; font-weight: 700; border-radius: 10px; text-decoration: none; }
+    .hint { font-size: 0.76rem; color: #94a3b8; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Viral Shorts Template Studio</h1>
-    <p class="sub">Upload raw clips -> AI invents viral template -> Transformative 9:16 edit</p>
+    <p class="sub">Raw clips or 5–10m video -> Viral template + SFX + watermark trim</p>
 
-    <label>1. Upload Raw Clips (1 to 8 videos)</label>
+    <label>1. Upload Raw Clips or 5–10 Min Video</label>
     <input type="file" id="clips" accept="video/*" multiple />
+    <div class="hint">Upload multiple short clips for 1 edited Short, or 1 long video to auto-extract multiple Shorts.</div>
+
+    <div class="row">
+      <div>
+        <label>Long Video Auto-Clips</label>
+        <select id="autoExtractCount">
+          <option value="1">1 Short</option>
+          <option value="2">2 Shorts</option>
+          <option value="3" selected>3 Shorts</option>
+          <option value="4">4 Shorts</option>
+        </select>
+      </div>
+      <div>
+        <label>Watermark Edge Trim</label>
+        <select id="cropMarginPercent">
+          <option value="0">0% (Keep Full Edges)</option>
+          <option value="8">8% (Light Trim)</option>
+          <option value="12" selected>12% (Corner Logo Trim)</option>
+          <option value="18">18% (Heavy Edge Trim)</option>
+        </select>
+      </div>
+    </div>
 
     <label>2. Video Niche / Hook Idea</label>
     <input id="niche" placeholder="e.g. Zero brain cell funny fail, Wait till the end..." />
 
-    <button class="btn btn-ai" id="inventBtn" onclick="inventTemplate()">AI Invent Viral Template</button>
+    <button class="btn btn-ai" id="inventBtn" onclick="inventTemplate()">AI / Smart Invent Viral Template</button>
 
     <div class="box">
       <label style="margin-top:0;">Saved / Active Templates</label>
@@ -52,7 +74,7 @@
 
       <label>Layout Style</label>
       <select id="layout">
-        <option value="banner_top_white">White Top Banner + Centered Clip (High Retention)</option>
+        <option value="banner_top_white">White Top Banner + Centered Clip</option>
         <option value="banner_dark_cinema">Dark Cinema Top/Bottom Banner</option>
         <option value="split_zoom_focus">Split Screen (Full Clip + Zoomed Action)</option>
         <option value="full_punch_cuts">Full Screen 9:16 + Dynamic Zoom Cuts</option>
@@ -68,22 +90,14 @@
         </div>
         <div>
           <label>Cut Speed (Seconds)</label>
-          <input id="cutDurationSec" type="number" step="0.2" min="1.2" max="5" value="2.0" />
+          <input id="cutDurationSec" type="number" step="0.2" min="1.2" max="4.5" value="2.0" />
         </div>
-      </div>
-
-      <label>AI Voice Intro Hook (Optional)</label>
-      <input id="voiceHookLine" placeholder="e.g. Watch what happens in the last two seconds..." />
-
-      <div class="check-row">
-        <input type="checkbox" id="useVoiceHook" />
-        <label for="useVoiceHook" style="margin:0;">Add AI voiceover hook on opening beat</label>
       </div>
 
       <button class="btn btn-save" onclick="saveCurrentTemplate()">Save Template Preset on Phone</button>
     </div>
 
-    <button class="btn btn-render" id="renderBtn" onclick="renderShort()">Edit & Export Viral Short</button>
+    <button class="btn btn-render" id="renderBtn" onclick="renderShort()">Edit & Export Viral Short(s)</button>
 
     <div class="box" id="statusBox" style="display:none;">
       <div id="statusText" style="font-size:0.88rem; font-weight:600;">Starting...</div>
@@ -100,23 +114,19 @@
         topHookText: "BRO HAD ZERO BRAIN CELLS",
         bottomTagText: "WAIT FOR IT...",
         cutDurationSec: 2.0,
-        zoomSpeed: 0.08,
-        contrastBoost: 1.06,
-        saturationBoost: 1.14,
-        voiceHookLine: "",
-        beatSfx: ["whoosh", "impact", "none", "riser"]
+        contrastBoost: 1.08,
+        saturationBoost: 1.15,
+        beatSfx: ["whoosh", "impact", "pop", "riser"]
       },
       {
         templateName: "Dark Twist Split-Focus",
         layout: "split_zoom_focus",
         topHookText: "99% MISS WHAT HAPPENS HERE",
-        bottomTagText: "LOOK AT THE BOTTOM",
-        cutDurationSec: 2.4,
-        zoomSpeed: 0.08,
+        bottomTagText: "WATCH THE BOTTOM",
+        cutDurationSec: 2.2,
         contrastBoost: 1.08,
-        saturationBoost: 1.1,
-        voiceHookLine: "Look closely at the bottom screen before it happens.",
-        beatSfx: ["riser", "impact", "whoosh"]
+        saturationBoost: 1.12,
+        beatSfx: ["riser", "impact", "whoosh", "pop"]
       }
     ];
 
@@ -139,7 +149,6 @@
       document.getElementById("topHookText").value = t.topHookText || "";
       document.getElementById("bottomTagText").value = t.bottomTagText || "";
       document.getElementById("cutDurationSec").value = t.cutDurationSec || 2.0;
-      document.getElementById("voiceHookLine").value = t.voiceHookLine || "";
     }
 
     function loadSavedTemplate() {
@@ -154,10 +163,9 @@
         topHookText: document.getElementById("topHookText").value,
         bottomTagText: document.getElementById("bottomTagText").value,
         cutDurationSec: parseFloat(document.getElementById("cutDurationSec").value) || 2.0,
-        contrastBoost: 1.06,
-        saturationBoost: 1.12,
-        voiceHookLine: document.getElementById("voiceHookLine").value,
-        beatSfx: ["whoosh", "impact", "none", "riser"]
+        contrastBoost: 1.08,
+        saturationBoost: 1.15,
+        beatSfx: ["whoosh", "impact", "pop", "riser"]
       };
     }
 
@@ -173,7 +181,7 @@
     async function inventTemplate() {
       const btn = document.getElementById("inventBtn");
       btn.disabled = true;
-      btn.textContent = "AI Designing Viral Template...";
+      btn.textContent = "Designing Viral Template...";
       try {
         const res = await fetch("/api/invent-template", {
           method: "POST",
@@ -191,16 +199,16 @@
         localStorage.setItem("viral_shorts_templates", JSON.stringify(list));
         refreshTemplateDropdown(0);
       } catch (e) {
-        alert("Template AI error: " + e.message);
+        alert("Template error: " + e.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = "AI Invent Viral Template";
+        btn.textContent = "AI / Smart Invent Viral Template";
       }
     }
 
     async function renderShort() {
       const files = document.getElementById("clips").files;
-      if (!files.length) return alert("Select at least 1 raw video clip first.");
+      if (!files.length) return alert("Select at least 1 video clip first.");
 
       const btn = document.getElementById("renderBtn");
       const statusBox = document.getElementById("statusBox");
@@ -212,12 +220,13 @@
       statusBox.style.display = "block";
       resultArea.innerHTML = "";
       barFill.style.width = "4%";
-      statusText.textContent = "Uploading raw clips...";
+      statusText.textContent = "Uploading video(s)...";
 
       const form = new FormData();
       for (const f of files) form.append("clips", f);
       form.append("templateJson", JSON.stringify(readFormTemplate()));
-      form.append("useVoiceHook", String(document.getElementById("useVoiceHook").checked));
+      form.append("autoExtractCount", document.getElementById("autoExtractCount").value);
+      form.append("cropMarginPercent", document.getElementById("cropMarginPercent").value);
 
       try {
         const res = await fetch("/api/render-short", { method: "POST", body: form });
@@ -233,10 +242,17 @@
           if (job.done) {
             clearInterval(poll);
             btn.disabled = false;
-            resultArea.innerHTML = `
-              <video controls playsinline src="${job.downloadUrl}"></video>
-              <a class="dl" href="${job.downloadUrl}" download="viral_short.mp4">Download Edited Short</a>
-            `;
+            const list = Array.isArray(job.outputs) && job.outputs.length
+              ? job.outputs
+              : [{ label: "Edited Short", url: job.downloadUrl }];
+
+            resultArea.innerHTML = list.map((item, idx) => `
+              <div class="${idx > 0 ? "clip-card" : ""}">
+                <div style="font-weight:700; font-size:0.9rem; margin-top:6px;">${item.label}</div>
+                <video controls playsinline src="${item.url}"></video>
+                <a class="dl" href="${item.url}" download="${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}.mp4">Download ${item.label}</a>
+              </div>
+            `).join("");
           } else if (job.error) {
             clearInterval(poll);
             btn.disabled = false;
