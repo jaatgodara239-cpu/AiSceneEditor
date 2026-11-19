@@ -20,7 +20,6 @@ fs.mkdirSync("/tmp/outputs", { recursive: true });
 const jobs = new Map();
 const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
-// 12 Distinct Viral YouTube Shorts Templates
 const VIRAL_TEMPLATES = {
   white_meme_hook: {
     id: "white_meme_hook",
@@ -276,9 +275,8 @@ function wrapBannerText(text, maxCharsPerLine = 24, maxLines = 2) {
   }
   if (current && lines.length < maxLines) lines.push(current);
   return lines.join("\n");
-}
-
-app.get("/api/templates", (req, res) => {
+    }
+       app.get("/api/templates", (req, res) => {
   res.json({ templates: TEMPLATE_LIST });
 });
 
@@ -551,4 +549,42 @@ async function processJob(jobId, clipFiles, template, options) {
     });
   } catch (err) {
     console.error("Job failed:", err);
-    update(0, `Error: ${err.message}`, { error
+    update(0, `Error: ${err.message}`, { error: true });
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
+    for (const f of clipFiles) fs.rmSync(f.path, { force: true });
+  }
+}
+
+app.post("/api/render-short", upload.array("clips", 8), (req, res) => {
+  if (!req.files || !req.files.length) {
+    return res.status(400).json({ error: "Upload at least 1 video clip." });
+  }
+
+  let template = {};
+  try {
+    template = JSON.parse(req.body.templateJson || "{}");
+  } catch {
+    return res.status(400).json({ error: "Invalid template JSON." });
+  }
+
+  const jobId = Date.now().toString(36);
+  jobs.set(jobId, { id: jobId, progress: 3, status: "Queued..." });
+
+  processJob(jobId, req.files, template, {
+    cropMarginPercent: req.body.cropMarginPercent || 12,
+    autoExtractCount: req.body.autoExtractCount || 3
+  });
+
+  res.json({ jobId });
+});
+
+app.get("/api/status/:jobId", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  res.json(job);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Shorts Studio (12 Templates) running on ${PORT}`));
+         
