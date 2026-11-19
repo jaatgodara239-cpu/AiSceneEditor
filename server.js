@@ -20,6 +20,144 @@ fs.mkdirSync("/tmp/outputs", { recursive: true });
 const jobs = new Map();
 const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
+// 12 Distinct Viral YouTube Shorts Templates
+const VIRAL_TEMPLATES = {
+  white_meme_hook: {
+    id: "white_meme_hook",
+    templateName: "1. White Top Banner Meme Hook",
+    layout: "banner_top_white",
+    topHookText: "BRO HAD ZERO BRAIN CELLS",
+    bottomTagText: "WAIT FOR THE END...",
+    cutDurationSec: 1.9,
+    contrastBoost: 1.08,
+    saturationBoost: 1.15,
+    beatSfx: ["whoosh", "impact", "pop", "riser"]
+  },
+  dark_cinema_twist: {
+    id: "dark_cinema_twist",
+    templateName: "2. Dark Cinema Twist Reveal",
+    layout: "banner_dark_cinema",
+    topHookText: "NOBODY EXPECTED THIS ENDING",
+    bottomTagText: "WATCH UNTIL THE LAST SECOND",
+    cutDurationSec: 2.3,
+    contrastBoost: 1.12,
+    saturationBoost: 1.08,
+    beatSfx: ["riser", "impact", "whoosh", "tick"]
+  },
+  split_zoom_detective: {
+    id: "split_zoom_detective",
+    templateName: "3. Split-Screen Zoom Detective",
+    layout: "split_zoom_focus",
+    topHookText: "99% MISS WHAT HAPPENS HERE",
+    bottomTagText: "ZOOMED IN ON THE ACTION",
+    cutDurationSec: 2.1,
+    contrastBoost: 1.07,
+    saturationBoost: 1.14,
+    beatSfx: ["tick", "riser", "impact", "pop"]
+  },
+  full_punch_montage: {
+    id: "full_punch_montage",
+    templateName: "4. Full-Screen Rapid Punch Cuts",
+    layout: "full_punch_cuts",
+    topHookText: "NON-STOP CHAOS IN 20 SECONDS",
+    bottomTagText: "BLINK AND YOU MISS IT",
+    cutDurationSec: 1.4,
+    contrastBoost: 1.1,
+    saturationBoost: 1.2,
+    beatSfx: ["pop", "whoosh", "impact", "pop"]
+  },
+  curiosity_gap_white: {
+    id: "curiosity_gap_white",
+    templateName: "5. Curiosity Gap Question Card",
+    layout: "banner_top_white",
+    topHookText: "HOW DID THIS EVEN HAPPEN?!",
+    bottomTagText: "EXPLAIN THIS LOGIC",
+    cutDurationSec: 2.2,
+    contrastBoost: 1.06,
+    saturationBoost: 1.12,
+    beatSfx: ["whoosh", "tick", "riser", "impact"]
+  },
+  instant_regret_dark: {
+    id: "instant_regret_dark",
+    templateName: "6. Instant Regret Dark Frame",
+    layout: "banner_dark_cinema",
+    topHookText: "INSTANT REGRET IN 3... 2... 1...",
+    bottomTagText: "IT WENT WRONG IMMEDIATELY",
+    cutDurationSec: 1.8,
+    contrastBoost: 1.14,
+    saturationBoost: 1.1,
+    beatSfx: ["tick", "tick", "riser", "impact"]
+  },
+  double_take_split: {
+    id: "double_take_split",
+    templateName: "7. Double-Take Split Reaction",
+    layout: "split_zoom_focus",
+    topHookText: "LOOK AT THE BACKGROUND",
+    bottomTagText: "REPLAY THAT RIGHT NOW",
+    cutDurationSec: 2.0,
+    contrastBoost: 1.08,
+    saturationBoost: 1.16,
+    beatSfx: ["pop", "riser", "impact", "whoosh"]
+  },
+  high_stakes_countdown: {
+    id: "high_stakes_countdown",
+    templateName: "8. High-Stakes Tension Build",
+    layout: "full_punch_cuts",
+    topHookText: "ONE MISTAKE RUINS EVERYTHING",
+    bottomTagText: "HOLD YOUR BREATH...",
+    cutDurationSec: 2.4,
+    contrastBoost: 1.12,
+    saturationBoost: 1.06,
+    beatSfx: ["riser", "tick", "riser", "impact"]
+  },
+  deadpan_fact_white: {
+    id: "deadpan_fact_white",
+    templateName: "9. Deadpan Observation Banner",
+    layout: "banner_top_white",
+    topHookText: "CONFIDENCE WITH ZERO PREPARATION",
+    bottomTagText: "BOLD STRATEGY",
+    cutDurationSec: 2.1,
+    contrastBoost: 1.05,
+    saturationBoost: 1.12,
+    beatSfx: ["pop", "whoosh", "pop", "impact"]
+  },
+  midnight_mystery_dark: {
+    id: "midnight_mystery_dark",
+    templateName: "10. Late-Night Mystery Frame",
+    layout: "banner_dark_cinema",
+    topHookText: "SOMETHING IS OFF ABOUT THIS",
+    bottomTagText: "SPOT THE DETAIL",
+    cutDurationSec: 2.5,
+    contrastBoost: 1.15,
+    saturationBoost: 0.98,
+    beatSfx: ["riser", "tick", "whoosh", "impact"]
+  },
+  hyper_cut_hype: {
+    id: "hyper_cut_hype",
+    templateName: "11. Hyper-Cut Hype Montage",
+    layout: "full_punch_cuts",
+    topHookText: "BEST MOMENTS BACK TO BACK",
+    bottomTagText: "PURE ENERGY",
+    cutDurationSec: 1.3,
+    contrastBoost: 1.12,
+    saturationBoost: 1.22,
+    beatSfx: ["whoosh", "pop", "impact", "whoosh"]
+  },
+  plot_twist_split: {
+    id: "plot_twist_split",
+    templateName: "12. Plot Twist Split Frame",
+    layout: "split_zoom_focus",
+    topHookText: "THE PLOT TWIST NOBODY SAW",
+    bottomTagText: "DID NOT SEE THAT COMING",
+    cutDurationSec: 2.2,
+    contrastBoost: 1.09,
+    saturationBoost: 1.15,
+    beatSfx: ["whoosh", "riser", "impact", "pop"]
+  }
+};
+
+const TEMPLATE_LIST = Object.values(VIRAL_TEMPLATES);
+
 function getAI() {
   if (!process.env.GEMINI_API_KEY) return null;
   return new GoogleGenAI({
@@ -49,46 +187,22 @@ async function getMediaInfo(filePath) {
   };
 }
 
-// Local zero-quota viral template generator (used automatically if API limit is reached)
 function generateLocalViralTemplate(niche = "") {
+  const base = TEMPLATE_LIST[Math.floor(Math.random() * TEMPLATE_LIST.length)];
   const cleanNiche = String(niche || "").trim();
-  const layouts = ["banner_top_white", "banner_dark_cinema", "split_zoom_focus", "full_punch_cuts"];
-  const hooks = cleanNiche
-    ? [
-        `${cleanNiche.toUpperCase().slice(0, 34)}`,
-        `WAIT TILL YOU SEE THIS`,
-        `NOBODY EXPECTED THIS ENDING`,
-        `HOW DID THIS EVEN HAPPEN`,
-        `WATCH THE LAST 3 SECONDS`
-      ]
-    : [
-        "BRO HAD ZERO BRAIN CELLS",
-        "WAIT FOR THE ENDING",
-        "99% MISS WHAT HAPPENS HERE",
-        "INSTANT REGRET IN 3 SECONDS",
-        "THE ENDING CAUGHT EVERYONE OFF GUARD"
-      ];
-  const tags = ["WAIT FOR IT...", "WATCH CLOSELY", "NO WAY THAT WORKED", "PART 2?", "10/10 TIMING"];
-  const sfxPatterns = [
-    ["whoosh", "impact", "pop", "riser"],
-    ["riser", "impact", "whoosh", "tick"],
-    ["pop", "whoosh", "impact", "pop"]
+  if (!cleanNiche) return { ...base };
+
+  const customHooks = [
+    cleanNiche.toUpperCase().slice(0, 34),
+    `WHY THIS ${cleanNiche.toUpperCase().slice(0, 20)} WENT VIRAL`,
+    `WAIT FOR THE ${cleanNiche.toUpperCase().slice(0, 18)} TWIST`,
+    base.topHookText
   ];
 
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const chosenLayout = pick(layouts);
-  const chosenHook = pick(hooks);
-
   return {
-    templateName: `Viral Mix: ${chosenHook.slice(0, 22)}`,
-    layout: chosenLayout,
-    topHookText: chosenHook,
-    bottomTagText: pick(tags),
-    cutDurationSec: Number((1.6 + Math.random() * 0.9).toFixed(1)),
-    contrastBoost: 1.08,
-    saturationBoost: 1.15,
-    voiceHookLine: "",
-    beatSfx: pick(sfxPatterns)
+    ...base,
+    templateName: `${base.templateName.replace(/^\d+\.\s*/, "")} (${cleanNiche.slice(0, 16)})`,
+    topHookText: customHooks[Math.floor(Math.random() * customHooks.length)]
   };
 }
 
@@ -164,7 +278,10 @@ function wrapBannerText(text, maxCharsPerLine = 24, maxLines = 2) {
   return lines.join("\n");
 }
 
-// Invent template: uses Gemini if quota is available, falls back seamlessly to local engine on 429/limit
+app.get("/api/templates", (req, res) => {
+  res.json({ templates: TEMPLATE_LIST });
+});
+
 app.post("/api/invent-template", async (req, res) => {
   const { niche, clipCount } = req.body || {};
   const ai = getAI();
@@ -186,7 +303,6 @@ Return ONLY valid JSON:
   "cutDurationSec": 2.0,
   "contrastBoost": 1.08,
   "saturationBoost": 1.15,
-  "voiceHookLine": "",
   "beatSfx": ["whoosh", "impact", "pop", "riser"]
 }`;
       const result = await ai.models.generateContent({
@@ -196,14 +312,13 @@ Return ONLY valid JSON:
       });
       return res.json({ template: JSON.parse(result.text), source: "ai" });
     } catch (err) {
-      console.warn("AI quota/limit hit, using local viral template engine:", err.message);
+      console.warn("AI quota/limit hit, using local 12-template engine:", err.message);
     }
   }
 
-  return res.json({ template: generateLocalViralTemplate(niche), source: "local_engine" });
+  return res.json({ template: generateLocalViralTemplate(niche), source: "local_12_templates" });
 });
 
-// Build one edited Short from a list of { srcPath, start, duration, hasAudio } slices
 async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFilePath, cropMarginPercent = 0) {
   const outW = 720;
   const outH = 1280;
@@ -223,7 +338,6 @@ async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFi
       ? template.beatSfx
       : ["whoosh", "impact", "pop", "riser"];
 
-  // Extra zoom factor to crop away edge/corner watermarks when enabled
   const wmTrim = 1 + Math.min(0.25, Math.max(0, Number(cropMarginPercent) || 0)) / 100;
   const renderedSegments = [];
 
@@ -367,17 +481,15 @@ async function processJob(jobId, clipFiles, template, options) {
 
     const firstInfo = await getMediaInfo(clipFiles[0].path);
     const isLongSingleVideo = clipFiles.length === 1 && firstInfo.duration > 75 && autoExtractCount > 1;
-
     const outputs = [];
 
     if (isLongSingleVideo) {
-      // Auto-extract multiple 22s highlight Shorts evenly spaced across a 5-10 min video
       const clipLen = 22;
       const usableSpan = Math.max(clipLen, firstInfo.duration - clipLen);
 
       for (let k = 0; k < autoExtractCount; k++) {
         const pct = 18 + Math.floor((k / autoExtractCount) * 75);
-        update(pct, `Auto-clipping Short ${k + 1}/${autoExtractCount} from long video...`);
+        update(pct, `Auto-clipping Short ${k + 1}/${autoExtractCount}...`);
 
         const windowStart = Math.floor((usableSpan / autoExtractCount) * k + usableSpan / (autoExtractCount * 4));
         const slices = [];
@@ -401,7 +513,6 @@ async function processJob(jobId, clipFiles, template, options) {
         outputs.push({ label: `Clip #${k + 1}`, url: `/outputs/${outFilename}` });
       }
     } else {
-      // Standard mode: combine uploaded raw clips into 1 punchy Short
       update(25, "Slicing clips into viral beats...");
       const slices = [];
       let totalTargetSec = 0;
@@ -440,42 +551,4 @@ async function processJob(jobId, clipFiles, template, options) {
     });
   } catch (err) {
     console.error("Job failed:", err);
-    update(0, `Error: ${err.message}`, { error: true });
-  } finally {
-    fs.rmSync(workDir, { recursive: true, force: true });
-    for (const f of clipFiles) fs.rmSync(f.path, { force: true });
-  }
-}
-
-app.post("/api/render-short", upload.array("clips", 8), (req, res) => {
-  if (!req.files || !req.files.length) {
-    return res.status(400).json({ error: "Upload at least 1 video clip." });
-  }
-
-  let template = {};
-  try {
-    template = JSON.parse(req.body.templateJson || "{}");
-  } catch {
-    return res.status(400).json({ error: "Invalid template JSON." });
-  }
-
-  const jobId = Date.now().toString(36);
-  jobs.set(jobId, { id: jobId, progress: 3, status: "Queued..." });
-
-  processJob(jobId, req.files, template, {
-    cropMarginPercent: req.body.cropMarginPercent || 12,
-    autoExtractCount: req.body.autoExtractCount || 3
-  });
-
-  res.json({ jobId });
-});
-
-app.get("/api/status/:jobId", (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: "Job not found" });
-  res.json(job);
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Zero-Limit Shorts Studio running on ${PORT}`));
-      
+    update(0, `Error: ${err.message}`, { error
