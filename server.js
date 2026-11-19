@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const app = express();
 const upload = multer({ dest: "/tmp/uploads/" });
 
+app.use(express.json());
 app.use(express.static("public"));
 app.use("/outputs", express.static("/tmp/outputs"));
 
@@ -17,6 +18,7 @@ fs.mkdirSync("/tmp/uploads", { recursive: true });
 fs.mkdirSync("/tmp/outputs", { recursive: true });
 
 const jobs = new Map();
+const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
 function getAI() {
   if (!process.env.GEMINI_API_KEY) {
@@ -28,77 +30,25 @@ function getAI() {
   });
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function withRetry(fn, label = "API call", maxAttempts = 3) {
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      console.log(`[${label}] attempt ${attempt}/${maxAttempts}`);
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const msg = String(err?.message || "");
-      const isTransient =
-        msg.includes("503") ||
-        msg.includes("UNAVAILABLE") ||
-        msg.includes("429") ||
-        msg.includes("RESOURCE_EXHAUSTED") ||
-        msg.includes("500") ||
-        msg.includes("INTERNAL");
-      if (!isTransient || attempt === maxAttempts) break;
-      await sleep(2000 * attempt);
-    }
-  }
-  throw lastErr;
-}
-
-// Extract base64 audio or image from Interactions API response (steps or legacy outputs)
-function extractMedia(interaction, mediaType) {
-  if (!interaction) return null;
-
-  if (mediaType === "audio" && interaction.output_audio?.data) {
-    return interaction.output_audio.data;
-  }
-  if (mediaType === "image" && interaction.output_image?.data) {
-    return interaction.output_image.data;
-  }
-
-  if (Array.isArray(interaction.steps)) {
-    for (let i = interaction.steps.length - 1; i >= 0; i--) {
-      const step = interaction.steps[i];
-      const items = Array.isArray(step?.content)
-        ? step.content
-        : Array.isArray(step?.outputs)
-        ? step.outputs
-        : [];
-      for (const item of items) {
-        if (item?.type === mediaType && item?.data) return item.data;
-      }
-    }
-  }
-
-  if (Array.isArray(interaction.outputs)) {
-    const found = interaction.outputs.find((o) => o?.type === mediaType && o?.data);
-    if (found) return found.data;
-  }
-
-  return null;
-}
-
-async function getAudioDuration(filePath) {
-  const { stdout } = await execFileAsync("ffprobe", [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "default=noprint_wrappers=1:nokey=1",
-    filePath
-  ]);
-  const sec = parseFloat(stdout.trim());
-  return Number.isFinite(sec) && sec > 0 ? sec : 3.0;
-}
-
 async function runFFmpeg(args) {
   await execFileAsync("ffmpeg", ["-y", ...args]);
+}
+
+async function getMediaInfo(filePath) {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=codec_type",
+    "-of", "json",
+    filePath
+  ]);
+  const parsed = JSON.parse(stdout || "{}");
+  const duration = parseFloat(parsed?.format?.duration || "0");
+  const streams = parsed?.streams || [];
+  const hasAudio = streams.some((s) => s.codec_type === "audio");
+  return {
+    duration: Number.isFinite(duration) && duration > 0 ? duration : 3.0,
+    hasAudio
+  };
 }
 
 function resolveSfxPath(sfxName) {
@@ -111,7 +61,96 @@ function resolveSfxPath(sfxName) {
   return null;
 }
 
-async function buildVideoJob(jobId, opts) {
+// Wrap text cleanly into max lines for FFmpeg drawtext
+function wrapBannerText(text, maxCharsPerLine = 26, maxLines = 2) {
+  const words = String(text || "")
+    .replace(/['":\\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+
+  const lines = [];
+  let current = "";
+  for (const w of words) {
+    if ((current + " " + w).trim().length <= maxCharsPerLine) {
+      current = (current + " " + w).trim();
+    } else {
+      if (current) lines.push(current);
+      current = w;
+      if (lines.length >= maxLines) break;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines.join("\n");
+}
+
+function extractAudioBase64(interaction) {
+  if (!interaction) return null;
+  if (interaction.output_audio?.data) return interaction.output_audio.data;
+  if (Array.isArray(interaction.steps)) {
+    for (let i = interaction.steps.length - 1; i >= 0; i--) {
+      const items = interaction.steps[i]?.content || interaction.steps[i]?.outputs || [];
+      for (const item of items) {
+        if (item?.type === "audio" && item?.data) return item.data;
+      }
+    }
+  }
+  if (Array.isArray(interaction.outputs)) {
+    const found = interaction.outputs.find((o) => o?.type === "audio" && o?.data);
+    if (found) return found.data;
+  }
+  return null;
+}
+
+// 1. Endpoint for Gemini to invent a Viral Shorts Template JSON
+app.post("/api/invent-template", async (req, res) => {
+  try {
+    const ai = getAI();
+    const { niche, clipCount } = req.body || {};
+    const prompt = `
+You are a viral YouTube Shorts editor who engineers 10M+ view Shorts from raw clips so they have high retention and transformative editorial structure.
+Design a viral Shorts editing template for:
+Niche/Vibe: ${niche || "Funny / shocking / unexpected moments"}
+Number of raw clips uploaded: ${clipCount || 2}
+
+Choose ONE layout from these exact options:
+- "banner_top_white": High-contrast white top header card with bold black hook text, framed clip in center, clean bottom reaction bar (great for mobile scroll-stopping).
+- "banner_dark_cinema": Sleek dark charcoal top & bottom framing with bold white/yellow hook text and subtle zoom motion.
+- "split_zoom_focus": Top half shows full clip, bottom half shows zoomed-in action focus + centered hook badge.
+- "full_punch_cuts": Full-screen 9:16 dynamic crop with bold floating hook text and rapid zoom punches.
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "templateName": "Short catchy name for this template",
+  "layout": "banner_top_white",
+  "topHookText": "Punchy 4-8 word curiosity/shock hook in ALL CAPS or Title Case",
+  "bottomTagText": "Short 2-5 word payoff/reaction tag",
+  "cutDurationSec": 2.2,
+  "zoomSpeed": 0.08,
+  "contrastBoost": 1.06,
+  "saturationBoost": 1.12,
+  "voiceHookLine": "Optional 1-sentence energetic spoken intro hook (or empty string if pure clip audio)",
+  "beatSfx": ["whoosh", "impact", "none", "riser"]
+}
+`;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
+    });
+
+    const template = JSON.parse(result.text);
+    res.json({ template });
+  } catch (err) {
+    console.error("Template generation error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Render Edited Short from Raw Clips + Template JSON
+async function renderShortJob(jobId, clipFiles, template, options) {
   const workDir = `/tmp/job_${jobId}`;
   fs.mkdirSync(workDir, { recursive: true });
 
@@ -120,262 +159,264 @@ async function buildVideoJob(jobId, opts) {
   };
 
   try {
-    const ai = getAI();
-    const isShort = opts.aspectRatio === "9:16";
-    const width = isShort ? 720 : 1280;
-    const height = isShort ? 1280 : 720;
+    const outW = 720;
+    const outH = 1280;
+    const allowedLayouts = new Set([
+      "banner_top_white",
+      "banner_dark_cinema",
+      "split_zoom_focus",
+      "full_punch_cuts"
+    ]);
+    const layout = allowedLayouts.has(template.layout) ? template.layout : "banner_top_white";
+    const cutSec = Math.min(5.0, Math.max(1.2, Number(template.cutDurationSec) || 2.2));
+    const contrast = Math.min(1.25, Math.max(0.95, Number(template.contrastBoost) || 1.06));
+    const saturation = Math.min(1.35, Math.max(0.9, Number(template.saturationBoost) || 1.12));
+    const topHook = wrapBannerText(template.topHookText || "WAIT FOR THE END", 24, 2);
+    const bottomTag = wrapBannerText(template.bottomTagText || "", 28, 1);
+    const beatSfxList = Array.isArray(template.beatSfx) ? template.beatSfx : ["whoosh"];
 
-    // 1. Storyboard via Gemini 3.8 Flash
-    update(8, "Writing script & scene storyboard...");
-    const storyboardPrompt = `
-Create a short explainer storyboard for: ${opts.topic}
-Break into ${opts.sceneCount} scenes (1 short sentence per scene, ~3-4s spoken).
-Visual style: ${opts.visualStyle}.
-${opts.hasReference ? "Keep the uploaded character reference consistent across all scenes." : ""}
-SFX options: "whoosh", "impact", "tick", "riser", "none".
-
-Return ONLY valid JSON:
-{
-  "title": "Short title",
-  "voiceStyle": "engaging storyteller, steady pace",
-  "musicPrompt": "subtle instrumental background music",
-  "scenes": [
-    {
-      "narration": "Spoken line.",
-      "imagePrompt": "Visual scene description, no text in image.",
-      "sfx": "none"
-    }
-  ]
-}
-`;
-
-    const scriptRes = await withRetry(
-      () =>
-        ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents: storyboardPrompt,
-          config: { responseMimeType: "application/json" }
-        }),
-      "Storyboard"
-    );
-
-    const storyboard = JSON.parse(scriptRes.text);
-    const scenes = (storyboard.scenes || []).slice(0, opts.sceneCount);
-    if (!scenes.length) throw new Error("No scenes generated.");
-
-    // 2. Optional Background Music via Lyria 3.5 (non-blocking if unavailable)
-    update(15, "Checking background music...");
-    let bgmPath = null;
-    try {
-      const musicInteraction = await withRetry(
-        () =>
-          ai.interactions.create({
-            model: "lyria-3.5",
-            input: `Instrumental only, no vocals: ${storyboard.musicPrompt || "calm ambient underscore"}`
-          }),
-        "Lyria BGM",
-        2
-      );
-      const musicAudio = extractMedia(musicInteraction, "audio");
-      if (musicAudio) {
-        bgmPath = path.join(workDir, "bgm.mp3");
-        fs.writeFileSync(bgmPath, Buffer.from(musicAudio, "base64"));
-      }
-    } catch (e) {
-      console.warn("Skipping BGM:", e.message);
-    }
-
-    let refImageBase64 = null;
-    let refImageMime = null;
-    if (opts.refImagePath) {
-      refImageBase64 = fs.readFileSync(opts.refImagePath).toString("base64");
-      refImageMime = opts.refImageMime || "image/png";
-    }
-
-    const segmentPaths = [];
-    let cumulativeSec = 0;
-
-    // 3. Per-scene TTS + Image + Fast Motion Video
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
-      const stepBase = 20 + Math.floor((i / scenes.length) * 65);
-
-      update(stepBase, `Scene ${i + 1}/${scenes.length}: Generating voiceover...`);
-      const ttsInteraction = await withRetry(
-        () =>
-          ai.interactions.create({
-            model: "gemini-3.8-flash-tts",
-            input: [
-              {
-                type: "user_input",
-                content: [
-                  {
-                    type: "text",
-                    text: scene.narration,
-                    annotations: [
-                      {
-                        type: "speech_metadata",
-                        style: storyboard.voiceStyle || "engaging storyteller"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ],
-            response_format: { type: "audio" },
-            generation_config: {
-              speech_config: [{ voice: opts.voice || "Puck" }]
+    // Optional Gemini TTS Voice Hook on Beat 1
+    let voiceHookPath = null;
+    if (options.useVoiceHook && template.voiceHookLine && template.voiceHookLine.trim()) {
+      try {
+        update(10, "Generating AI voice hook...");
+        const ai = getAI();
+        const tts = await ai.interactions.create({
+          model: "gemini-3.8-flash-tts",
+          input: [
+            {
+              type: "user_input",
+              content: [
+                {
+                  type: "text",
+                  text: template.voiceHookLine.trim(),
+                  annotations: [{ type: "speech_metadata", style: "energetic, punchy YouTube Shorts narrator" }]
+                }
+              ]
             }
-          }),
-        `TTS ${i + 1}`
-      );
-
-      const audioBase64 = extractMedia(ttsInteraction, "audio");
-      if (!audioBase64) throw new Error(`No audio returned for scene ${i + 1}`);
-      const wavPath = path.join(workDir, `voice_${i}.wav`);
-      fs.writeFileSync(wavPath, Buffer.from(audioBase64, "base64"));
-      const durationSec = await getAudioDuration(wavPath);
-
-      update(stepBase + 4, `Scene ${i + 1}/${scenes.length}: Generating frame...`);
-      const imgInput = [
-        {
-          type: "text",
-          text: `${scene.imagePrompt}. Style: ${opts.visualStyle}. No text or captions in image.`
+          ],
+          response_format: { type: "audio" },
+          generation_config: { speech_config: [{ voice: options.voice || "Puck" }] }
+        });
+        const audioB64 = extractAudioBase64(tts);
+        if (audioB64) {
+          voiceHookPath = path.join(workDir, "voice_hook.wav");
+          fs.writeFileSync(voiceHookPath, Buffer.from(audioB64, "base64"));
         }
-      ];
-      if (refImageBase64) {
-        imgInput.push({ type: "image", data: refImageBase64, mime_type: refImageMime });
+      } catch (e) {
+        console.warn("Voice hook skipped:", e.message);
+      }
+    }
+
+    // Slice uploaded raw clips into beat-sized segments (max ~24s total Short)
+    update(20, "Analyzing & slicing raw clips into viral beats...");
+    const rawSlices = [];
+    let totalTargetSec = 0;
+    const maxShortSec = 26;
+
+    for (let c = 0; c < clipFiles.length; c++) {
+      if (totalTargetSec >= maxShortSec) break;
+      const clip = clipFiles[c];
+      const info = await getMediaInfo(clip.path);
+      let cursor = 0;
+
+      while (cursor + 0.8 < info.duration && totalTargetSec < maxShortSec) {
+        const segDur = Math.min(cutSec, info.duration - cursor, maxShortSec - totalTargetSec);
+        rawSlices.push({
+          srcPath: clip.path,
+          start: cursor,
+          duration: segDur,
+          hasAudio: info.hasAudio
+        });
+        cursor += segDur;
+        totalTargetSec += segDur;
+      }
+    }
+
+    if (!rawSlices.length) {
+      throw new Error("Could not extract playable segments from uploaded clips.");
+    }
+
+    const renderedSegments = [];
+
+    for (let i = 0; i < rawSlices.length; i++) {
+      const slice = rawSlices[i];
+      const pct = 25 + Math.floor((i / rawSlices.length) * 60);
+      update(pct, `Rendering beat ${i + 1}/${rawSlices.length} (${layout})...`);
+
+      const segOut = path.join(workDir, `beat_${i}.mp4`);
+      const zoomDir = i % 2 === 0 ? 1 : -1;
+      const padScale = 1.12;
+
+      // Build layout-specific visual filter graph
+      let vf = "";
+      const colorGrade = `eq=contrast=${contrast}:saturation=${saturation}`;
+      const drawTopText = topHook
+        ? `,drawtext=fontfile=${FONT_PATH}:text='${topHook}':fontcolor=${
+            layout === "banner_top_white" ? "black" : "white"
+          }:fontsize=40:line_spacing=8:x=(w-text_w)/2:y=${
+            layout === "banner_top_white" ? "95" : "105"
+          }`
+        : "";
+      const drawBottomText = bottomTag
+        ? `,drawtext=fontfile=${FONT_PATH}:text='${bottomTag}':fontcolor=${
+            layout === "banner_top_white" ? "black" : "#facc15"
+          }:fontsize=32:x=(w-text_w)/2:y=h-120`
+        : "";
+
+      if (layout === "banner_top_white") {
+        // High-contrast white top & bottom studio banner + centered 720x820 dynamic video box
+        const boxH = 820;
+        const scaledW = Math.round(outW * padScale);
+        const scaledH = Math.round(boxH * padScale);
+        const dx = scaledW - outW;
+        const dy = scaledH - boxH;
+        const cropMotion =
+          zoomDir === 1
+            ? `crop=${outW}:${boxH}:x='${dx}*(t/${slice.duration})':y='${dy}*(t/${slice.duration})'`
+            : `crop=${outW}:${boxH}:x='${dx}*(1-t/${slice.duration})':y='${dy}*(1-t/${slice.duration})'`;
+
+        vf =
+          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade}[vid];` +
+          `color=c=white:s=${outW}x${outH}:d=${slice.duration}[bg];` +
+          `[bg][vid]overlay=0:230${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+      } else if (layout === "banner_dark_cinema") {
+        const boxH = 840;
+        const scaledW = Math.round(outW * padScale);
+        const scaledH = Math.round(boxH * padScale);
+        const dx = scaledW - outW;
+        const dy = scaledH - boxH;
+        const cropMotion =
+          zoomDir === 1
+            ? `crop=${outW}:${boxH}:x='${dx}*(t/${slice.duration})':y='${dy}*(t/${slice.duration})'`
+            : `crop=${outW}:${boxH}:x='${dx}*(1-t/${slice.duration})':y='${dy}*(1-t/${slice.duration})'`;
+
+        vf =
+          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade}[vid];` +
+          `color=c=0x0b0d12:s=${outW}x${outH}:d=${slice.duration}[bg];` +
+          `[bg][vid]overlay=0:220${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+      } else if (layout === "split_zoom_focus") {
+        // Top half: full scene; Bottom half: tight action punch-in
+        const halfH = outH / 2;
+        vf =
+          `[0:v]split=2[v1][v2];` +
+          `[v1]scale=${outW}:${halfH}:force_original_aspect_ratio=increase,crop=${outW}:${halfH},${colorGrade}[top];` +
+          `[v2]scale=${Math.round(outW * 1.45)}:${Math.round(halfH * 1.45)}:force_original_aspect_ratio=increase,crop=${outW}:${halfH},${colorGrade}[bot];` +
+          `[top][bot]vstack=inputs=2,drawbox=x=24:y=65:w=${outW - 48}:h=130:color=black@0.75:t=fill${drawTopText}${drawBottomText},format=yuv420p[outv]`;
+      } else {
+        // full_punch_cuts
+        const scaledW = Math.round(outW * 1.15);
+        const scaledH = Math.round(outH * 1.15);
+        const dx = scaledW - outW;
+        const dy = scaledH - outH;
+        const cropMotion =
+          zoomDir === 1
+            ? `crop=${outW}:${outH}:x='${dx}*(t/${slice.duration})':y='${dy}*(t/${slice.duration})'`
+            : `crop=${outW}:${outH}:x='${dx}*(1-t/${slice.duration})':y='${dy}*(1-t/${slice.duration})'`;
+
+        vf =
+          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade},` +
+          `drawbox=x=24:y=65:w=${outW - 48}:h=135:color=black@0.72:t=fill${drawTopText}${drawBottomText},format=yuv420p[outv]`;
       }
 
-      const imgInteraction = await withRetry(
-        () =>
-          ai.interactions.create({
-            model: "gemini-nano-banana-2.1",
-            input: imgInput,
-            response_format: {
-              type: "image",
-              aspect_ratio: opts.aspectRatio,
-              image_size: "1K"
-            }
-          }),
-        `Image ${i + 1}`
-      );
+      // Build audio mix (original clip audio or silence + beat SFX + optional voice hook on beat 0)
+      const ffInputs = ["-ss", slice.start.toFixed(2), "-t", slice.duration.toFixed(2), "-i", slice.srcPath];
+      const audioFilters = [];
+      const mixLabels = [];
 
-      const imgBase64 = extractMedia(imgInteraction, "image");
-      if (!imgBase64) throw new Error(`No image returned for scene ${i + 1}`);
-      const imgPath = path.join(workDir, `frame_${i}.png`);
-      fs.writeFileSync(imgPath, Buffer.from(imgBase64, "base64"));
-
-      // Mix audio (voice + optional SFX + optional BGM)
-      update(stepBase + 7, `Scene ${i + 1}/${scenes.length}: Rendering clip...`);
-      const mixedAudioPath = path.join(workDir, `mix_${i}.wav`);
-      const sfxFile = resolveSfxPath(scene.sfx);
-      const inputs = ["-i", wavPath];
-      const filters = ["[0:a]volume=1.0[voice]"];
-      const labels = ["[voice]"];
-
-      if (sfxFile) {
-        inputs.push("-i", sfxFile);
-        filters.push(`[${inputs.length / 2 - 1}:a]volume=0.65[sfx]`);
-        labels.push("[sfx]");
+      if (slice.hasAudio) {
+        audioFilters.push(`[0:a]aresample=44100,volume=0.85[basea]`);
+        mixLabels.push("[basea]");
+      } else {
+        ffInputs.push("-f", "lavfi", "-t", slice.duration.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo");
+        audioFilters.push(`[1:a]volume=0.0[basea]`);
+        mixLabels.push("[basea]");
       }
-      if (bgmPath) {
-        inputs.push("-stream_loop", "-1", "-ss", cumulativeSec.toFixed(2), "-t", durationSec.toFixed(2), "-i", bgmPath);
-        filters.push(`[${inputs.length / 2 - 1}:a]volume=0.20[bgm]`);
-        labels.push("[bgm]");
+
+      const sfxKey = beatSfxList[i % beatSfxList.length];
+      const sfxPath = resolveSfxPath(sfxKey);
+      if (sfxPath) {
+        const sfxIdx = ffInputs.filter((x) => x === "-i").length;
+        ffInputs.push("-i", sfxPath);
+        audioFilters.push(`[${sfxIdx}:a]aresample=44100,volume=0.55[sfxa]`);
+        mixLabels.push("[sfxa]");
       }
-      filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=first[outa]`);
+
+      if (i === 0 && voiceHookPath) {
+        const vIdx = ffInputs.filter((x) => x === "-i").length;
+        ffInputs.push("-i", voiceHookPath);
+        audioFilters.push(`[${vIdx}:a]aresample=44100,volume=1.15[vhook]`);
+        mixLabels.push("[vhook]");
+      }
+
+      audioFilters.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=1[outa]`);
 
       await runFFmpeg([
-        ...inputs,
-        "-filter_complex", filters.join(";"),
+        ...ffInputs,
+        "-filter_complex", `${vf};${audioFilters.join(";")}`,
+        "-map", "[outv]",
         "-map", "[outa]",
-        "-ar", "24000",
-        "-ac", "1",
-        mixedAudioPath
-      ]);
-      cumulativeSec += durationSec;
-
-      // Fast, low-CPU Ken Burns crop motion
-      const segPath = path.join(workDir, `seg_${i}.mp4`);
-      const padW = Math.round(width * 1.12);
-      const padH = Math.round(height * 1.12);
-      const dx = padW - width;
-      const dy = padH - height;
-      const cropFilter =
-        i % 2 === 0
-          ? `crop=${width}:${height}:x='${dx}*(t/${Math.max(durationSec, 1)})':y='${dy}*(t/${Math.max(durationSec, 1)})'`
-          : `crop=${width}:${height}:x='${dx}*(1-t/${Math.max(durationSec, 1)})':y='${dy}*(1-t/${Math.max(durationSec, 1)})'`;
-
-      await runFFmpeg([
-        "-loop", "1",
-        "-i", imgPath,
-        "-i", mixedAudioPath,
-        "-vf", `scale=${padW}:${padH}:force_original_aspect_ratio=increase,${cropFilter},format=yuv420p`,
-        "-r", "24",
+        "-r", "30",
         "-c:v", "libx264",
         "-preset", "ultrafast",
-        "-crf", "24",
+        "-crf", "23",
         "-c:a", "aac",
         "-b:a", "128k",
         "-shortest",
-        segPath
+        segOut
       ]);
 
-      segmentPaths.push(segPath);
+      renderedSegments.push(segOut);
     }
 
-    // 4. Concatenate segments
-    update(92, "Stitching final MP4...");
-    const concatListPath = path.join(workDir, "concat.txt");
-    fs.writeFileSync(concatListPath, segmentPaths.map((p) => `file '${p}'`).join("\n"));
+    // Concatenate all beats into fresh MP4
+    update(90, "Exporting final Short MP4...");
+    const concatPath = path.join(workDir, "concat.txt");
+    fs.writeFileSync(concatPath, renderedSegments.map((p) => `file '${p}'`).join("\n"));
 
-    const outFilename = `video_${jobId}.mp4`;
-    const finalOutPath = path.join("/tmp/outputs", outFilename);
+    const outFilename = `short_${jobId}.mp4`;
+    const finalPath = path.join("/tmp/outputs", outFilename);
 
     await runFFmpeg([
       "-f", "concat",
       "-safe", "0",
-      "-i", concatListPath,
+      "-i", concatPath,
       "-c", "copy",
-      finalOutPath
+      "-movflags", "+faststart",
+      finalPath
     ]);
 
     update(100, "Done!", {
       done: true,
-      downloadUrl: `/outputs/${outFilename}`,
-      title: storyboard.title
+      downloadUrl: `/outputs/${outFilename}`
     });
   } catch (err) {
-    console.error("Job failed:", err);
+    console.error("Render failed:", err);
     update(0, `Error: ${err.message}`, { error: true });
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
-    if (opts.refImagePath) fs.rmSync(opts.refImagePath, { force: true });
+    for (const f of clipFiles) fs.rmSync(f.path, { force: true });
   }
 }
 
-app.post("/api/generate", upload.single("characterRef"), (req, res) => {
-  const jobId = Date.now().toString(36);
-  const { topic, aspectRatio, sceneCount, visualStyle, voice } = req.body;
-
-  if (!topic || !topic.trim()) {
-    return res.status(400).json({ error: "Please enter a topic or script." });
+app.post("/api/render-short", upload.array("clips", 8), (req, res) => {
+  if (!req.files || !req.files.length) {
+    return res.status(400).json({ error: "Upload at least 1 video clip." });
   }
 
-  jobs.set(jobId, { id: jobId, progress: 2, status: "Starting job..." });
+  let template = {};
+  try {
+    template = JSON.parse(req.body.templateJson || "{}");
+  } catch {
+    return res.status(400).json({ error: "Invalid template JSON." });
+  }
 
-  buildVideoJob(jobId, {
-    topic: topic.trim(),
-    aspectRatio: aspectRatio || "9:16",
-    sceneCount: Math.min(20, Math.max(3, parseInt(sceneCount, 10) || 5)),
-    visualStyle:
-      visualStyle ||
-      "Minimalist 2D stick-figure illustration with bold black ink lines, clean off-white background",
-    voice: voice || "Puck",
-    hasReference: Boolean(req.file),
-    refImagePath: req.file?.path,
-    refImageMime: req.file?.mimetype
+  const jobId = Date.now().toString(36);
+  jobs.set(jobId, { id: jobId, progress: 3, status: "Queued..." });
+
+  renderShortJob(jobId, req.files, template, {
+    useVoiceHook: req.body.useVoiceHook === "true",
+    voice: req.body.voice || "Puck"
   });
 
   res.json({ jobId });
@@ -388,5 +429,5 @@ app.get("/api/status/:jobId", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-              
+app.listen(PORT, () => console.log(`Shorts Template Studio running on ${PORT}`));
+      
