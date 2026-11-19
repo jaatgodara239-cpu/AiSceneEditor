@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viral Shorts Template Studio</title>
+  <title>Viral Shorts Template Studio (12 Templates)</title>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
     body { margin: 0; padding: 14px; background: #0b0d12; color: #f8fafc; display: flex; justify-content: center; }
@@ -36,11 +36,11 @@
 <body>
   <div class="card">
     <h1>Viral Shorts Template Studio</h1>
-    <p class="sub">Raw clips or 5–10m video -> Viral template + SFX + watermark trim</p>
+    <p class="sub">12 viral templates + SFX + watermark trim + 5–10m auto-clipper</p>
 
     <label>1. Upload Raw Clips or 5–10 Min Video</label>
     <input type="file" id="clips" accept="video/*" multiple />
-    <div class="hint">Upload multiple short clips for 1 edited Short, or 1 long video to auto-extract multiple Shorts.</div>
+    <div class="hint">Upload short clips for 1 Short, or 1 long video to auto-extract multiple Shorts.</div>
 
     <div class="row">
       <div>
@@ -66,10 +66,10 @@
     <label>2. Video Niche / Hook Idea</label>
     <input id="niche" placeholder="e.g. Zero brain cell funny fail, Wait till the end..." />
 
-    <button class="btn btn-ai" id="inventBtn" onclick="inventTemplate()">AI / Smart Invent Viral Template</button>
+    <button class="btn btn-ai" id="inventBtn" onclick="inventTemplate()">Pick / Invent Viral Template</button>
 
     <div class="box">
-      <label style="margin-top:0;">Saved / Active Templates</label>
+      <label style="margin-top:0;">12 Viral Templates + Saved Presets</label>
       <select id="savedSelect" onchange="loadSavedTemplate()"></select>
 
       <label>Layout Style</label>
@@ -86,11 +86,11 @@
       <div class="row">
         <div>
           <label>Bottom Tag</label>
-          <input id="bottomTagText" value="WAIT FOR IT..." />
+          <input id="bottomTagText" value="WAIT FOR THE END..." />
         </div>
         <div>
           <label>Cut Speed (Seconds)</label>
-          <input id="cutDurationSec" type="number" step="0.2" min="1.2" max="4.5" value="2.0" />
+          <input id="cutDurationSec" type="number" step="0.1" min="1.2" max="4.5" value="1.9" />
         </div>
       </div>
 
@@ -107,36 +107,32 @@
   </div>
 
   <script>
-    const DEFAULT_TEMPLATES = [
-      {
-        templateName: "White Banner Viral Meme",
-        layout: "banner_top_white",
-        topHookText: "BRO HAD ZERO BRAIN CELLS",
-        bottomTagText: "WAIT FOR IT...",
-        cutDurationSec: 2.0,
-        contrastBoost: 1.08,
-        saturationBoost: 1.15,
-        beatSfx: ["whoosh", "impact", "pop", "riser"]
-      },
-      {
-        templateName: "Dark Twist Split-Focus",
-        layout: "split_zoom_focus",
-        topHookText: "99% MISS WHAT HAPPENS HERE",
-        bottomTagText: "WATCH THE BOTTOM",
-        cutDurationSec: 2.2,
-        contrastBoost: 1.08,
-        saturationBoost: 1.12,
-        beatSfx: ["riser", "impact", "whoosh", "pop"]
-      }
+    const FALLBACK_12 = [
+      { templateName: "1. White Top Banner Meme Hook", layout: "banner_top_white", topHookText: "BRO HAD ZERO BRAIN CELLS", bottomTagText: "WAIT FOR THE END...", cutDurationSec: 1.9, contrastBoost: 1.08, saturationBoost: 1.15, beatSfx: ["whoosh", "impact", "pop", "riser"] },
+      { templateName: "2. Dark Cinema Twist Reveal", layout: "banner_dark_cinema", topHookText: "NOBODY EXPECTED THIS ENDING", bottomTagText: "WATCH UNTIL THE LAST SECOND", cutDurationSec: 2.3, contrastBoost: 1.12, saturationBoost: 1.08, beatSfx: ["riser", "impact", "whoosh", "tick"] },
+      { templateName: "3. Split-Screen Zoom Detective", layout: "split_zoom_focus", topHookText: "99% MISS WHAT HAPPENS HERE", bottomTagText: "ZOOMED IN ON THE ACTION", cutDurationSec: 2.1, contrastBoost: 1.07, saturationBoost: 1.14, beatSfx: ["tick", "riser", "impact", "pop"] },
+      { templateName: "4. Full-Screen Rapid Punch Cuts", layout: "full_punch_cuts", topHookText: "NON-STOP CHAOS IN 20 SECONDS", bottomTagText: "BLINK AND YOU MISS IT", cutDurationSec: 1.4, contrastBoost: 1.1, saturationBoost: 1.2, beatSfx: ["pop", "whoosh", "impact", "pop"] },
+      { templateName: "5. Curiosity Gap Question Card", layout: "banner_top_white", topHookText: "HOW DID THIS EVEN HAPPEN?!", bottomTagText: "EXPLAIN THIS LOGIC", cutDurationSec: 2.2, contrastBoost: 1.06, saturationBoost: 1.12, beatSfx: ["whoosh", "tick", "riser", "impact"] },
+      { templateName: "6. Instant Regret Dark Frame", layout: "banner_dark_cinema", topHookText: "INSTANT REGRET IN 3... 2... 1...", bottomTagText: "IT WENT WRONG IMMEDIATELY", cutDurationSec: 1.8, contrastBoost: 1.14, saturationBoost: 1.1, beatSfx: ["tick", "tick", "riser", "impact"] },
+      { templateName: "7. Double-Take Split Reaction", layout: "split_zoom_focus", topHookText: "LOOK AT THE BACKGROUND", bottomTagText: "REPLAY THAT RIGHT NOW", cutDurationSec: 2.0, contrastBoost: 1.08, saturationBoost: 1.16, beatSfx: ["pop", "riser", "impact", "whoosh"] },
+      { templateName: "8. High-Stakes Tension Build", layout: "full_punch_cuts", topHookText: "ONE MISTAKE RUINS EVERYTHING", bottomTagText: "HOLD YOUR BREATH...", cutDurationSec: 2.4, contrastBoost: 1.12, saturationBoost: 1.06, beatSfx: ["riser", "tick", "riser", "impact"] },
+      { templateName: "9. Deadpan Observation Banner", layout: "banner_top_white", topHookText: "CONFIDENCE WITH ZERO PREPARATION", bottomTagText: "BOLD STRATEGY", cutDurationSec: 2.1, contrastBoost: 1.05, saturationBoost: 1.12, beatSfx: ["pop", "whoosh", "pop", "impact"] },
+      { templateName: "10. Late-Night Mystery Frame", layout: "banner_dark_cinema", topHookText: "SOMETHING IS OFF ABOUT THIS", bottomTagText: "SPOT THE DETAIL", cutDurationSec: 2.5, contrastBoost: 1.15, saturationBoost: 0.98, beatSfx: ["riser", "tick", "whoosh", "impact"] },
+      { templateName: "11. Hyper-Cut Hype Montage", layout: "full_punch_cuts", topHookText: "BEST MOMENTS BACK TO BACK", bottomTagText: "PURE ENERGY", cutDurationSec: 1.3, contrastBoost: 1.12, saturationBoost: 1.22, beatSfx: ["whoosh", "pop", "impact", "whoosh"] },
+      { templateName: "12. Plot Twist Split Frame", layout: "split_zoom_focus", topHookText: "THE PLOT TWIST NOBODY SAW", bottomTagText: "DID NOT SEE THAT COMING", cutDurationSec: 2.2, contrastBoost: 1.09, saturationBoost: 1.15, beatSfx: ["whoosh", "riser", "impact", "pop"] }
     ];
 
-    function getTemplates() {
-      const saved = JSON.parse(localStorage.getItem("viral_shorts_templates") || "null");
-      return Array.isArray(saved) && saved.length ? saved : DEFAULT_TEMPLATES;
+    function getCustomSaved() {
+      const saved = JSON.parse(localStorage.getItem("viral_shorts_custom_presets") || "[]");
+      return Array.isArray(saved) ? saved : [];
+    }
+
+    function getAllTemplates() {
+      return [...getCustomSaved(), ...FALLBACK_12];
     }
 
     function refreshTemplateDropdown(selectIndex = 0) {
-      const list = getTemplates();
+      const list = getAllTemplates();
       const sel = document.getElementById("savedSelect");
       sel.innerHTML = list.map((t, idx) => `<option value="${idx}">${t.templateName}</option>`).join("");
       sel.value = String(selectIndex);
@@ -153,7 +149,7 @@
 
     function loadSavedTemplate() {
       const idx = parseInt(document.getElementById("savedSelect").value, 10) || 0;
-      applyTemplateToForm(getTemplates()[idx]);
+      applyTemplateToForm(getAllTemplates()[idx]);
     }
 
     function readFormTemplate(nameOverride) {
@@ -172,16 +168,16 @@
     function saveCurrentTemplate() {
       const name = prompt("Name this template preset:", document.getElementById("topHookText").value.slice(0, 24));
       if (!name) return;
-      const list = getTemplates();
-      list.unshift(readFormTemplate(name));
-      localStorage.setItem("viral_shorts_templates", JSON.stringify(list));
+      const custom = getCustomSaved();
+      custom.unshift(readFormTemplate(`★ ${name}`));
+      localStorage.setItem("viral_shorts_custom_presets", JSON.stringify(custom));
       refreshTemplateDropdown(0);
     }
 
     async function inventTemplate() {
       const btn = document.getElementById("inventBtn");
       btn.disabled = true;
-      btn.textContent = "Designing Viral Template...";
+      btn.textContent = "Selecting / Designing Template...";
       try {
         const res = await fetch("/api/invent-template", {
           method: "POST",
@@ -194,15 +190,15 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to invent template");
 
-        const list = getTemplates();
-        list.unshift(data.template);
-        localStorage.setItem("viral_shorts_templates", JSON.stringify(list));
+        const custom = getCustomSaved();
+        custom.unshift(data.template);
+        localStorage.setItem("viral_shorts_custom_presets", JSON.stringify(custom));
         refreshTemplateDropdown(0);
       } catch (e) {
         alert("Template error: " + e.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = "AI / Smart Invent Viral Template";
+        btn.textContent = "Pick / Invent Viral Template";
       }
     }
 
