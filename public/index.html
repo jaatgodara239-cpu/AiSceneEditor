@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Animation Studio</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      margin: 0; padding: 16px;
+      background: #0d0f14; color: #f1f5f9;
+      display: flex; justify-content: center;
+    }
+    .card {
+      width: 100%; max-width: 480px;
+      background: #161a23; border: 1px solid #262c3a;
+      border-radius: 16px; padding: 20px;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 6px; }
+    p.sub { color: #94a3b8; font-size: 0.88rem; margin: 0 0 18px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin: 14px 0 6px; color: #cbd5e1; }
+    textarea, input, select {
+      width: 100%; padding: 11px 12px; border-radius: 10px;
+      border: 1px solid #2e3646; background: #0d0f14; color: #fff;
+      font-size: 0.95rem;
+    }
+    textarea { min-height: 105px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button {
+      width: 100%; margin-top: 18px; padding: 14px;
+      border: none; border-radius: 12px;
+      background: #3b82f6; color: #fff;
+      font-size: 1rem; font-weight: 700; cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .status-box {
+      margin-top: 18px; padding: 14px; border-radius: 12px;
+      background: #0d0f14; border: 1px solid #262c3a; display: none;
+    }
+    .bar-bg { height: 8px; background: #262c3a; border-radius: 99px; overflow: hidden; margin: 10px 0; }
+    .bar-fill { height: 100%; width: 0%; background: #22c55e; transition: width 0.4s; }
+    video { width: 100%; border-radius: 10px; margin-top: 12px; background: #000; }
+    a.dl-btn {
+      display: block; text-align: center; margin-top: 10px; padding: 12px;
+      background: #22c55e; color: #052e16; font-weight: 700;
+      border-radius: 10px; text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>AI Scene Animator</h1>
+    <p class="sub">Gemini Script + Gemini TTS + Static Scene Frames + FFmpeg</p>
+
+    <label>Topic or Narration Script</label>
+    <textarea id="topic" placeholder="e.g. Why early humans were terrified of the dark, explained in 30 seconds..."></textarea>
+
+    <div class="row">
+      <div>
+        <label>Format</label>
+        <select id="aspectRatio">
+          <option value="9:16" selected>9:16 (Shorts / Reels)</option>
+          <option value="16:9">16:9 (YouTube Video)</option>
+        </select>
+      </div>
+      <div>
+        <label>Scene Count</label>
+        <select id="sceneCount">
+          <option value="5">5 Scenes (~20s)</option>
+          <option value="8" selected>8 Scenes (~30s)</option>
+          <option value="12">12 Scenes (~45s)</option>
+          <option value="16">16 Scenes (~60s)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Narrator Voice</label>
+        <select id="voice">
+          <option value="Puck" selected>Puck (Energetic)</option>
+          <option value="Charon">Charon (Deep / Dramatic)</option>
+          <option value="Fenrir">Fenrir (Bold / Intense)</option>
+          <option value="Kore">Kore (Clear / Calm)</option>
+          <option value="Aoede">Aoede (Warm)</option>
+        </select>
+      </div>
+      <div>
+        <label>Character Ref (Optional)</label>
+        <input type="file" id="characterRef" accept="image/*" />
+      </div>
+    </div>
+
+    <label>Visual Art Style</label>
+    <input id="visualStyle" value="Minimalist 2D stick-figure illustration with bold black ink lines, clean off-white background, dramatic lighting" />
+
+    <button id="genBtn" onclick="startGeneration()">Generate Animated Video</button>
+
+    <div class="status-box" id="statusBox">
+      <div id="statusText" style="font-size:0.9rem; font-weight:600;">Initializing...</div>
+      <div class="bar-bg"><div class="bar-fill" id="barFill"></div></div>
+      <div id="resultArea"></div>
+    </div>
+  </div>
+
+  <script>
+    async function startGeneration() {
+      const topic = document.getElementById("topic").value.trim();
+      if (!topic) return alert("Enter a topic or script first.");
+
+      const btn = document.getElementById("genBtn");
+      const statusBox = document.getElementById("statusBox");
+      const statusText = document.getElementById("statusText");
+      const barFill = document.getElementById("barFill");
+      const resultArea = document.getElementById("resultArea");
+
+      btn.disabled = true;
+      statusBox.style.display = "block";
+      resultArea.innerHTML = "";
+      barFill.style.width = "3%";
+      statusText.textContent = "Uploading & starting pipeline...";
+
+      const form = new FormData();
+      form.append("topic", topic);
+      form.append("aspectRatio", document.getElementById("aspectRatio").value);
+      form.append("sceneCount", document.getElementById("sceneCount").value);
+      form.append("voice", document.getElementById("voice").value);
+      form.append("visualStyle", document.getElementById("visualStyle").value);
+
+      const refFile = document.getElementById("characterRef").files[0];
+      if (refFile) form.append("characterRef", refFile);
+
+      try {
+        const res = await fetch("/api/generate", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to start");
+
+        const poll = setInterval(async () => {
+          const sRes = await fetch(`/api/status/${data.jobId}`);
+          const job = await sRes.json();
+
+          statusText.textContent = job.status;
+          barFill.style.width = `${job.progress}%`;
+
+          if (job.done) {
+            clearInterval(poll);
+            btn.disabled = false;
+            resultArea.innerHTML = `
+              <video controls playsinline src="${job.downloadUrl}"></video>
+              <a class="dl-btn" href="${job.downloadUrl}" download="ai_animation.mp4">Download MP4</a>
+            `;
+          } else if (job.error) {
+            clearInterval(poll);
+            btn.disabled = false;
+          }
+        }, 2500);
+      } catch (err) {
+        statusText.textContent = "Error: " + err.message;
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+            </html>
+            
