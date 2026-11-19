@@ -30,11 +30,11 @@ function getAI() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Retry transient 503 / 429 / 500 errors with backoff
-async function withRetry(fn, label = "API call", maxAttempts = 5) {
+async function withRetry(fn, label = "API call", maxAttempts = 3) {
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      console.log(`[${label}] attempt ${attempt}/${maxAttempts}`);
       return await fn();
     } catch (err) {
       lastErr = err;
@@ -46,14 +46,44 @@ async function withRetry(fn, label = "API call", maxAttempts = 5) {
         msg.includes("RESOURCE_EXHAUSTED") ||
         msg.includes("500") ||
         msg.includes("INTERNAL");
-
       if (!isTransient || attempt === maxAttempts) break;
-      const waitMs = Math.min(20000, 2000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 800);
-      console.warn(`[${label}] transient error (attempt ${attempt}/${maxAttempts}), retrying in ${waitMs}ms...`);
-      await sleep(waitMs);
+      await sleep(2000 * attempt);
     }
   }
   throw lastErr;
+}
+
+// Extract base64 audio or image from Interactions API response (steps or legacy outputs)
+function extractMedia(interaction, mediaType) {
+  if (!interaction) return null;
+
+  if (mediaType === "audio" && interaction.output_audio?.data) {
+    return interaction.output_audio.data;
+  }
+  if (mediaType === "image" && interaction.output_image?.data) {
+    return interaction.output_image.data;
+  }
+
+  if (Array.isArray(interaction.steps)) {
+    for (let i = interaction.steps.length - 1; i >= 0; i--) {
+      const step = interaction.steps[i];
+      const items = Array.isArray(step?.content)
+        ? step.content
+        : Array.isArray(step?.outputs)
+        ? step.outputs
+        : [];
+      for (const item of items) {
+        if (item?.type === mediaType && item?.data) return item.data;
+      }
+    }
+  }
+
+  if (Array.isArray(interaction.outputs)) {
+    const found = interaction.outputs.find((o) => o?.type === mediaType && o?.data);
+    if (found) return found.data;
+  }
+
+  return null;
 }
 
 async function getAudioDuration(filePath) {
@@ -95,31 +125,28 @@ async function buildVideoJob(jobId, opts) {
     const width = isShort ? 720 : 1280;
     const height = isShort ? 1280 : 720;
 
-    // 1. Storyboard + BGM prompt + SFX cues
-    update(8, "Writing script, music prompt & scene cues...");
+    // 1. Storyboard via Gemini 3.8 Flash
+    update(8, "Writing script & scene storyboard...");
     const storyboardPrompt = `
-You are a viral explainer video director. Create a storyboard for the topic/script below.
-Break it into ${opts.sceneCount} visual beats (each beat = 1-2 short sentences, ~3-5 seconds spoken).
+Create a short explainer storyboard for: ${opts.topic}
+Break into ${opts.sceneCount} scenes (1 short sentence per scene, ~3-4s spoken).
 Visual style: ${opts.visualStyle}.
-${opts.hasReference ? "A character reference image is provided. Keep this exact character consistent across all imagePrompts." : ""}
-Available SFX keys (pick one or "none"): "whoosh", "impact", "tick", "riser", "none".
+${opts.hasReference ? "Keep the uploaded character reference consistent across all scenes." : ""}
+SFX options: "whoosh", "impact", "tick", "riser", "none".
 
-Return ONLY valid JSON (no markdown fences):
+Return ONLY valid JSON:
 {
-  "title": "Video title",
-  "voiceStyle": "Narrator style instruction, e.g. 'tense documentary storyteller, steady pace'",
-  "musicPrompt": "Instrumental background music description matching mood, no vocals",
+  "title": "Short title",
+  "voiceStyle": "engaging storyteller, steady pace",
+  "musicPrompt": "subtle instrumental background music",
   "scenes": [
     {
-      "narration": "Exact spoken line for this beat.",
-      "imagePrompt": "Scene visual prompt, no text or subtitles inside the image.",
-      "sfx": "whoosh"
+      "narration": "Spoken line.",
+      "imagePrompt": "Visual scene description, no text in image.",
+      "sfx": "none"
     }
   ]
 }
-
-Topic or Script:
-${opts.topic}
 `;
 
     const scriptRes = await withRetry(
@@ -133,29 +160,29 @@ ${opts.topic}
     );
 
     const storyboard = JSON.parse(scriptRes.text);
-    const scenes = storyboard.scenes || [];
-    if (!scenes.length) throw new Error("Failed to generate scenes.");
+    const scenes = (storyboard.scenes || []).slice(0, opts.sceneCount);
+    if (!scenes.length) throw new Error("No scenes generated.");
 
-    // 2. Generate Instrumental Background Music via Lyria 3.5
-    update(15, "Composing background music track...");
+    // 2. Optional Background Music via Lyria 3.5 (non-blocking if unavailable)
+    update(15, "Checking background music...");
     let bgmPath = null;
     try {
       const musicInteraction = await withRetry(
         () =>
           ai.interactions.create({
             model: "lyria-3.5",
-            input: `Instrumental only, no vocals, subtle background score: ${storyboard.musicPrompt || "ambient tension underscore"}`
+            input: `Instrumental only, no vocals: ${storyboard.musicPrompt || "calm ambient underscore"}`
           }),
         "Lyria BGM",
-        3
+        2
       );
-      const musicAudio = musicInteraction.output_audio?.data;
+      const musicAudio = extractMedia(musicInteraction, "audio");
       if (musicAudio) {
         bgmPath = path.join(workDir, "bgm.mp3");
         fs.writeFileSync(bgmPath, Buffer.from(musicAudio, "base64"));
       }
-    } catch (musicErr) {
-      console.warn("BGM generation skipped:", musicErr.message);
+    } catch (e) {
+      console.warn("Skipping BGM:", e.message);
     }
 
     let refImageBase64 = null;
@@ -168,13 +195,12 @@ ${opts.topic}
     const segmentPaths = [];
     let cumulativeSec = 0;
 
-    // 3. Generate Narration + Scene Art + Mixed Audio per Scene
+    // 3. Per-scene TTS + Image + Fast Motion Video
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
       const stepBase = 20 + Math.floor((i / scenes.length) * 65);
 
-      // 3A. Narration TTS
-      update(stepBase, `Scene ${i + 1}/${scenes.length}: Voiceover...`);
+      update(stepBase, `Scene ${i + 1}/${scenes.length}: Generating voiceover...`);
       const ttsInteraction = await withRetry(
         () =>
           ai.interactions.create({
@@ -196,26 +222,25 @@ ${opts.topic}
                 ]
               }
             ],
+            response_format: { type: "audio" },
             generation_config: {
               speech_config: [{ voice: opts.voice || "Puck" }]
             }
           }),
-        `TTS Scene ${i + 1}`
+        `TTS ${i + 1}`
       );
 
+      const audioBase64 = extractMedia(ttsInteraction, "audio");
+      if (!audioBase64) throw new Error(`No audio returned for scene ${i + 1}`);
       const wavPath = path.join(workDir, `voice_${i}.wav`);
-      const audioData = ttsInteraction.output_audio?.data;
-      if (!audioData) throw new Error(`TTS failed on scene ${i + 1}`);
-      fs.writeFileSync(wavPath, Buffer.from(audioData, "base64"));
-
+      fs.writeFileSync(wavPath, Buffer.from(audioBase64, "base64"));
       const durationSec = await getAudioDuration(wavPath);
 
-      // 3B. Static Scene Image via Gemini Nano Banana 2.1
-      update(stepBase + 3, `Scene ${i + 1}/${scenes.length}: Scene frame...`);
+      update(stepBase + 4, `Scene ${i + 1}/${scenes.length}: Generating frame...`);
       const imgInput = [
         {
           type: "text",
-          text: `${scene.imagePrompt}. Style: ${opts.visualStyle}. Clean composition, no text or subtitles in image.`
+          text: `${scene.imagePrompt}. Style: ${opts.visualStyle}. No text or captions in image.`
         }
       ];
       if (refImageBase64) {
@@ -233,76 +258,64 @@ ${opts.topic}
               image_size: "1K"
             }
           }),
-        `Image Scene ${i + 1}`
+        `Image ${i + 1}`
       );
 
-      const imgData =
-        imgInteraction.output_image?.data ||
-        (imgInteraction.outputs || []).find((o) => o.type === "image")?.data;
-      if (!imgData) throw new Error(`Image failed on scene ${i + 1}`);
-
+      const imgBase64 = extractMedia(imgInteraction, "image");
+      if (!imgBase64) throw new Error(`No image returned for scene ${i + 1}`);
       const imgPath = path.join(workDir, `frame_${i}.png`);
-      fs.writeFileSync(imgPath, Buffer.from(imgData, "base64"));
+      fs.writeFileSync(imgPath, Buffer.from(imgBase64, "base64"));
 
-      // 3C. Mix Narration + Optional Scene SFX + Sliced BGM Window
-      update(stepBase + 6, `Scene ${i + 1}/${scenes.length}: Mixing audio & motion...`);
+      // Mix audio (voice + optional SFX + optional BGM)
+      update(stepBase + 7, `Scene ${i + 1}/${scenes.length}: Rendering clip...`);
       const mixedAudioPath = path.join(workDir, `mix_${i}.wav`);
       const sfxFile = resolveSfxPath(scene.sfx);
-
       const inputs = ["-i", wavPath];
-      const filterParts = ["[0:a]volume=1.0[voice]"];
-      const mixInputs = ["[voice]"];
+      const filters = ["[0:a]volume=1.0[voice]"];
+      const labels = ["[voice]"];
 
       if (sfxFile) {
         inputs.push("-i", sfxFile);
-        filterParts.push(`[${inputs.length / 2 - 1}:a]volume=0.65[sfx]`);
-        mixInputs.push("[sfx]");
+        filters.push(`[${inputs.length / 2 - 1}:a]volume=0.65[sfx]`);
+        labels.push("[sfx]");
       }
-
       if (bgmPath) {
         inputs.push("-stream_loop", "-1", "-ss", cumulativeSec.toFixed(2), "-t", durationSec.toFixed(2), "-i", bgmPath);
-        const bgmIdx = inputs.length / 2 - 1;
-        filterParts.push(`[${bgmIdx}:a]volume=0.20[bgm]`);
-        mixInputs.push("[bgm]");
+        filters.push(`[${inputs.length / 2 - 1}:a]volume=0.20[bgm]`);
+        labels.push("[bgm]");
       }
-
-      filterParts.push(`${mixInputs.join("")}amix=inputs=${mixInputs.length}:duration=first:dropout_transition=2[outa]`);
+      filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=first[outa]`);
 
       await runFFmpeg([
         ...inputs,
-        "-filter_complex", filterParts.join(";"),
+        "-filter_complex", filters.join(";"),
         "-map", "[outa]",
         "-ar", "24000",
         "-ac", "1",
         mixedAudioPath
       ]);
-
       cumulativeSec += durationSec;
 
-      // 3D. Render Segment Video
+      // Fast, low-CPU Ken Burns crop motion
       const segPath = path.join(workDir, `seg_${i}.mp4`);
-      const fps = 24;
-      const totalFrames = Math.max(24, Math.ceil(durationSec * fps));
-      const zoomExpr =
+      const padW = Math.round(width * 1.12);
+      const padH = Math.round(height * 1.12);
+      const dx = padW - width;
+      const dy = padH - height;
+      const cropFilter =
         i % 2 === 0
-          ? `min(zoom+0.0012,1.15)`
-          : `if(lte(zoom,1.0),1.15,max(1.001,zoom-0.0012))`;
-
-      const vf = [
-        `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase`,
-        `crop=${width * 2}:${height * 2}`,
-        `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${totalFrames}:s=${width}x${height}:fps=${fps}`,
-        `format=yuv420p`
-      ].join(",");
+          ? `crop=${width}:${height}:x='${dx}*(t/${Math.max(durationSec, 1)})':y='${dy}*(t/${Math.max(durationSec, 1)})'`
+          : `crop=${width}:${height}:x='${dx}*(1-t/${Math.max(durationSec, 1)})':y='${dy}*(1-t/${Math.max(durationSec, 1)})'`;
 
       await runFFmpeg([
         "-loop", "1",
         "-i", imgPath,
         "-i", mixedAudioPath,
-        "-vf", vf,
+        "-vf", `scale=${padW}:${padH}:force_original_aspect_ratio=increase,${cropFilter},format=yuv420p`,
+        "-r", "24",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
+        "-preset", "ultrafast",
+        "-crf", "24",
         "-c:a", "aac",
         "-b:a", "128k",
         "-shortest",
@@ -310,11 +323,10 @@ ${opts.topic}
       ]);
 
       segmentPaths.push(segPath);
-      await sleep(600);
     }
 
-    // 4. Final Concatenate
-    update(90, "Stitching final video...");
+    // 4. Concatenate segments
+    update(92, "Stitching final MP4...");
     const concatListPath = path.join(workDir, "concat.txt");
     fs.writeFileSync(concatListPath, segmentPaths.map((p) => `file '${p}'`).join("\n"));
 
@@ -356,10 +368,10 @@ app.post("/api/generate", upload.single("characterRef"), (req, res) => {
   buildVideoJob(jobId, {
     topic: topic.trim(),
     aspectRatio: aspectRatio || "9:16",
-    sceneCount: Math.min(20, Math.max(3, parseInt(sceneCount, 10) || 6)),
+    sceneCount: Math.min(20, Math.max(3, parseInt(sceneCount, 10) || 5)),
     visualStyle:
       visualStyle ||
-      "Minimalist 2D stick-figure illustration with bold black ink lines, clean off-white background, subtle shading",
+      "Minimalist 2D stick-figure illustration with bold black ink lines, clean off-white background",
     voice: voice || "Puck",
     hasReference: Boolean(req.file),
     refImagePath: req.file?.path,
@@ -377,4 +389,4 @@ app.get("/api/status/:jobId", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-                                            
+              
