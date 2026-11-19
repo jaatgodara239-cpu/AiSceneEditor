@@ -28,6 +28,34 @@ function getAI() {
   });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retry transient 503 / 429 / 500 errors with backoff
+async function withRetry(fn, label = "API call", maxAttempts = 5) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || "");
+      const isTransient =
+        msg.includes("503") ||
+        msg.includes("UNAVAILABLE") ||
+        msg.includes("429") ||
+        msg.includes("RESOURCE_EXHAUSTED") ||
+        msg.includes("500") ||
+        msg.includes("INTERNAL");
+
+      if (!isTransient || attempt === maxAttempts) break;
+      const waitMs = Math.min(20000, 2000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 800);
+      console.warn(`[${label}] transient error (attempt ${attempt}/${maxAttempts}), retrying in ${waitMs}ms...`);
+      await sleep(waitMs);
+    }
+  }
+  throw lastErr;
+}
+
 async function getAudioDuration(filePath) {
   const { stdout } = await execFileAsync("ffprobe", [
     "-v", "error",
@@ -94,11 +122,15 @@ Topic or Script:
 ${opts.topic}
 `;
 
-    const scriptRes = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: storyboardPrompt,
-      config: { responseMimeType: "application/json" }
-    });
+    const scriptRes = await withRetry(
+      () =>
+        ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: storyboardPrompt,
+          config: { responseMimeType: "application/json" }
+        }),
+      "Storyboard"
+    );
 
     const storyboard = JSON.parse(scriptRes.text);
     const scenes = storyboard.scenes || [];
@@ -108,10 +140,15 @@ ${opts.topic}
     update(15, "Composing background music track...");
     let bgmPath = null;
     try {
-      const musicInteraction = await ai.interactions.create({
-        model: "lyria-3.5",
-        input: `Instrumental only, no vocals, subtle background score: ${storyboard.musicPrompt || "ambient tension underscore"}`
-      });
+      const musicInteraction = await withRetry(
+        () =>
+          ai.interactions.create({
+            model: "lyria-3.5",
+            input: `Instrumental only, no vocals, subtle background score: ${storyboard.musicPrompt || "ambient tension underscore"}`
+          }),
+        "Lyria BGM",
+        3
+      );
       const musicAudio = musicInteraction.output_audio?.data;
       if (musicAudio) {
         bgmPath = path.join(workDir, "bgm.mp3");
@@ -136,31 +173,35 @@ ${opts.topic}
       const scene = scenes[i];
       const stepBase = 20 + Math.floor((i / scenes.length) * 65);
 
-      // 3A. Narration TTS (Fixed: speech_metadata goes inside annotations)
+      // 3A. Narration TTS
       update(stepBase, `Scene ${i + 1}/${scenes.length}: Voiceover...`);
-      const ttsInteraction = await ai.interactions.create({
-        model: "gemini-3.8-flash-tts",
-        input: [
-          {
-            type: "user_input",
-            content: [
+      const ttsInteraction = await withRetry(
+        () =>
+          ai.interactions.create({
+            model: "gemini-3.8-flash-tts",
+            input: [
               {
-                type: "text",
-                text: scene.narration,
-                annotations: [
+                type: "user_input",
+                content: [
                   {
-                    type: "speech_metadata",
-                    style: storyboard.voiceStyle || "engaging storyteller"
+                    type: "text",
+                    text: scene.narration,
+                    annotations: [
+                      {
+                        type: "speech_metadata",
+                        style: storyboard.voiceStyle || "engaging storyteller"
+                      }
+                    ]
                   }
                 ]
               }
-            ]
-          }
-        ],
-        generation_config: {
-          speech_config: [{ voice: opts.voice || "Puck" }]
-        }
-      });
+            ],
+            generation_config: {
+              speech_config: [{ voice: opts.voice || "Puck" }]
+            }
+          }),
+        `TTS Scene ${i + 1}`
+      );
 
       const wavPath = path.join(workDir, `voice_${i}.wav`);
       const audioData = ttsInteraction.output_audio?.data;
@@ -181,15 +222,19 @@ ${opts.topic}
         imgInput.push({ type: "image", data: refImageBase64, mime_type: refImageMime });
       }
 
-      const imgInteraction = await ai.interactions.create({
-        model: "gemini-nano-banana-2.1",
-        input: imgInput,
-        response_format: {
-          type: "image",
-          aspect_ratio: opts.aspectRatio,
-          image_size: "1K"
-        }
-      });
+      const imgInteraction = await withRetry(
+        () =>
+          ai.interactions.create({
+            model: "gemini-nano-banana-2.1",
+            input: imgInput,
+            response_format: {
+              type: "image",
+              aspect_ratio: opts.aspectRatio,
+              image_size: "1K"
+            }
+          }),
+        `Image Scene ${i + 1}`
+      );
 
       const imgData =
         imgInteraction.output_image?.data ||
@@ -265,6 +310,7 @@ ${opts.topic}
       ]);
 
       segmentPaths.push(segPath);
+      await sleep(600);
     }
 
     // 4. Final Concatenate
@@ -331,4 +377,4 @@ app.get("/api/status/:jobId", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-        
+                                            
