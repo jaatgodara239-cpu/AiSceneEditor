@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>16:9 Coded Animation Studio (Neural Voice + SFX)</title>
+  <title>16:9 Coded Animation Studio (Sync + SFX)</title>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
     body { margin: 0; padding: 12px; background: #090b10; color: #f8fafc; display: flex; justify-content: center; }
@@ -26,7 +26,6 @@
       font-size: 0.86rem; cursor: pointer; width: 100%;
     }
     .btn-primary { background: #f59e0b; color: #1c1002; }
-    .btn-voice { background: #8b5cf6; color: #fff; }
     .btn-play { background: #22c55e; color: #052e16; }
     .btn-export { background: #3b82f6; color: #fff; }
     .btn-ghost { background: #1e2433; color: #e2e8f0; border: 1px solid #30394f; }
@@ -47,7 +46,7 @@
   <div class="app">
     <div class="card">
       <h1>16:9 Coded Animation Studio</h1>
-      <p class="sub">Free Neural Narration + Procedural SFX + Stick-Figure & Motion Graphics</p>
+      <p class="sub">Punctuation-Synced Subtitles + Procedural SFX + Stick-Figure & Motion Graphics</p>
 
       <div class="stage-wrap">
         <canvas id="stage" width="1280" height="720"></canvas>
@@ -65,7 +64,7 @@
         <button class="btn btn-ghost" onclick="testSfx()">Test SFX</button>
         <button class="btn btn-export" id="exportBtn" onclick="exportVideo()">Export 16:9 Video</button>
       </div>
-      <div class="status" id="statusMsg">Ready. Paste your script and tap "Generate Free Neural Voice".</div>
+      <div class="status" id="statusMsg">Upload your narration audio and tap "Re-Sync Subtitles".</div>
       <div id="downloadWrap"></div>
     </div>
 
@@ -73,52 +72,40 @@
       <div class="row2">
         <div>
           <label style="margin-top:0;">Video Topic / Title</label>
-          <input id="topicInput" value="Why Your Brain Sabotages You At 3 AM" />
+          <input id="topicInput" value="Procrastination" />
         </div>
         <div>
           <label style="margin-top:0;">Visual Theme</label>
           <select id="themeSelect" onchange="drawFrame(currentTime)">
             <option value="dark_ink">Dark Ink Stick-Figure</option>
             <option value="amber_blueprint">Amber Psychology Blueprint</option>
-            <option value="survival_sketch">Minimalist Survival Sketch</option>
+            <option value="survival_sketch" selected>Minimalist Survival Sketch</option>
           </select>
         </div>
       </div>
 
       <label>Full Script (4–5 Min Script Supported)</label>
-      <textarea id="scriptInput">At 3 AM, your brain stops acting like a rational planner and starts acting like a survival alarm. The prefrontal cortex, the part of your mind responsible for logic and impulse control, powers down to conserve energy. Meanwhile, your amygdala stays wide awake, scanning every quiet shadow for danger. That is why a tiny problem at midnight feels like an unstoppable crisis. When you are isolated from the crowd, your internal clock distorts time and multiplies stress. Step by step, overthinking traps you in a loop until morning light resets your nervous system.</textarea>
+      <textarea id="scriptInput">You have a deadline. You know exactly what to do. And yet, you're watching videos instead. Why? You're not lazy. Science says so. For decades, we blamed bad time management. Make a schedule. Download an app. Try harder tomorrow. None of that works when your brain is protecting you from emotional discomfort.</textarea>
 
       <div class="row2">
         <div>
-          <label>Neural Narrator Voice (Free)</label>
-          <select id="voiceSelect">
-            <option value="en-US-AndrewNeural">Andrew (Deep US Storytelling)</option>
-            <option value="en-US-BrianNeural">Brian (Calm Documentary)</option>
-            <option value="en-US-EmmaMultilingualNeural">Emma (Clear Explainer)</option>
-            <option value="en-GB-RyanNeural">Ryan (British Narrator)</option>
-            <option value="en-IN-PrabhatNeural">Prabhat (Indian English Male)</option>
-            <option value="hi-IN-MadhurNeural">Madhur (Hindi Narrator)</option>
-          </select>
-        </div>
-        <div>
-          <label>Narration Speed</label>
-          <select id="rateSelect">
-            <option value="-10%">0.90x (Slow & Dramatic)</option>
-            <option value="+0%" selected>1.00x (Natural Pacing)</option>
-            <option value="+10%">1.10x (Fast Retention)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row2" style="margin-top:10px;">
-        <button class="btn btn-voice" id="genVoiceBtn" onclick="generateNeuralVoice()">Generate Free Neural Voice</button>
-        <button class="btn btn-primary" onclick="rebuildStoryboard()">Sync Scenes Only</button>
-      </div>
-
-      <div class="row2" style="margin-top:8px;">
-        <div>
-          <label>Or Upload Custom Audio (MP3/WAV)</label>
+          <label>Upload Narration Audio (MP3/WAV/M4A)</label>
           <input type="file" id="audioUpload" accept="audio/*" onchange="loadUploadedAudio(this.files[0])" />
+        </div>
+        <div>
+          <label>Scene Grouping Pacing</label>
+          <select id="groupModeSelect" onchange="rebuildStoryboard()">
+            <option value="grouped" selected>Smooth Grouped Beats (Recommended)</option>
+            <option value="balanced">Balanced Sentences</option>
+            <option value="every_sentence">Every Sentence (Fast Cuts)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div>
+          <label>Subtitle Sync Offset (Sec): <span id="offsetVal">0.0s</span></label>
+          <input type="range" id="syncOffset" min="-4" max="4" step="0.1" value="0" oninput="updateSyncOffset(this.value)" />
         </div>
         <div>
           <label>Background Drone + SFX Level</label>
@@ -129,6 +116,8 @@
           </select>
         </div>
       </div>
+
+      <button class="btn btn-primary" style="margin-top:10px;" onclick="rebuildStoryboard()">Re-Sync Subtitles & Scenes</button>
     </div>
 
     <div class="card">
@@ -163,8 +152,9 @@
     };
 
     let scenes = [];
-    let totalDuration = 28;
+    let totalDuration = 30;
     let currentTime = 0;
+    let syncOffsetSec = 0;
     let isPlaying = false;
     let lastRaf = 0;
     let lastSceneIdx = -1;
@@ -217,7 +207,7 @@
       const now = audioCtx.currentTime;
 
       if (kind === "whoosh") {
-        const bufferSize = audioCtx.sampleRate * 0.28;
+        const bufferSize = audioCtx.sampleRate * 0.25;
         const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
         const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
@@ -226,56 +216,49 @@
         const filter = audioCtx.createBiquadFilter();
         filter.type = "bandpass";
         filter.frequency.setValueAtTime(280, now);
-        filter.frequency.exponentialRampToValueAtTime(1100, now + 0.25);
+        filter.frequency.exponentialRampToValueAtTime(1050, now + 0.22);
         const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.14, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
         noise.connect(filter);
         filter.connect(gain);
         gain.connect(audioCtx.destination);
         gain.connect(destStreamNode);
         noise.start(now);
-      } else if (kind === "impact") {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(135, now);
-        osc.frequency.exponentialRampToValueAtTime(38, now + 0.35);
-        gain.gain.setValueAtTime(0.28, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        gain.connect(destStreamNode);
-        osc.start(now);
-        osc.stop(now + 0.37);
       } else {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(520, now);
-        osc.frequency.exponentialRampToValueAtTime(780, now + 0.16);
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(130, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.32);
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         gain.connect(destStreamNode);
         osc.start(now);
-        osc.stop(now + 0.19);
+        osc.stop(now + 0.35);
       }
     }
 
     function testSfx() {
       playProceduralSfx("whoosh");
-      setTimeout(() => playProceduralSfx("impact"), 260);
+      setTimeout(() => playProceduralSfx("impact"), 250);
+    }
+
+    function updateSyncOffset(val) {
+      syncOffsetSec = parseFloat(val) || 0;
+      document.getElementById("offsetVal").textContent = `${syncOffsetSec >= 0 ? "+" : ""}${syncOffsetSec.toFixed(1)}s`;
+      drawFrame(currentTime);
     }
 
     function pickSceneType(sentence, index) {
       const s = sentence.toLowerCase();
-      if (/brain|mind|cortex|think|memory|amygdala/.test(s)) return "brain_network";
-      if (/crowd|alone|isolated|people|society|everyone/.test(s)) return "crowd_outlier";
-      if (/time|clock|hour|midnight|3 am|future|morning/.test(s)) return "timeline_clock";
-      if (/danger|alarm|stress|heart|fear|crisis|survival/.test(s)) return "heartbeat_meter";
-      if (/vs|versus|compare|difference|half|while/.test(s)) return "split_compare";
+      if (/brain|mind|cortex|think|memory|amygdala|emotion|discomfort/.test(s)) return "brain_network";
+      if (/crowd|everyone|people|society|procrastinat|deadline/.test(s)) return "crowd_outlier";
+      if (/time|clock|hour|midnight|3 am|tomorrow|schedule/.test(s)) return "timeline_clock";
+      if (/danger|alarm|stress|heart|fear|crisis|survival|stuck/.test(s)) return "heartbeat_meter";
+      if (/vs|versus|compare|difference|instead|but|yet/.test(s)) return "split_compare";
       if (/grow|rise|up|loop|increase|multiply|level/.test(s)) return "rising_chart";
       return SCENE_TYPES[index % SCENE_TYPES.length].id;
     }
@@ -285,22 +268,62 @@
       return words.slice(0, 4).join(" ").toUpperCase() || "KEY INSIGHT";
     }
 
+    function groupSentences(rawSentences, mode) {
+      const cleaned = rawSentences.map(s => s.trim()).filter(Boolean);
+      if (mode === "every_sentence") return cleaned;
+
+      const minWords = mode === "grouped" ? 11 : 7;
+      const merged = [];
+      let buf = "";
+
+      for (const s of cleaned) {
+        const next = (buf + " " + s).trim();
+        const wordCount = next.split(/\s+/).length;
+        if (!buf) {
+          buf = s;
+        } else if (buf.split(/\s+/).length < minWords && wordCount <= 24) {
+          buf = next;
+        } else {
+          merged.push(buf);
+          buf = s;
+        }
+      }
+      if (buf) {
+        if (merged.length && buf.split(/\s+/).length <= 4) {
+          merged[merged.length - 1] = (merged[merged.length - 1] + " " + buf).trim();
+        } else {
+          merged.push(buf);
+        }
+      }
+      return merged;
+    }
+
+    function computeSpeechWeight(segText) {
+      const words = segText.trim().split(/\s+/).filter(Boolean);
+      let weight = words.length;
+      // Add natural spoken pause weight for sentence breaks and commas
+      const endPauses = (segText.match(/[.!?]+/g) || []).length * 1.4;
+      const midPauses = (segText.match(/[,;:—–-]/g) || []).length * 0.45;
+      return Math.max(2.2, weight + endPauses + midPauses);
+    }
+
     function rebuildStoryboard() {
       const script = document.getElementById("scriptInput").value.trim();
       const rawSentences = script.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || ["Your story begins here."];
-      const cleaned = rawSentences.map(s => s.trim()).filter(Boolean);
+      const mode = document.getElementById("groupModeSelect").value;
+      const units = groupSentences(rawSentences, mode);
 
       const dur = Number.isFinite(narrAudio.duration) && narrAudio.duration > 1
         ? narrAudio.duration
-        : Math.max(12, cleaned.join(" ").split(/\s+/).length * 0.42);
+        : Math.max(12, script.split(/\s+/).length * 0.42);
 
       totalDuration = dur;
-      const totalWords = cleaned.reduce((acc, s) => acc + s.split(/\s+/).length, 0) || 1;
-      let cursor = 0;
+      const weights = units.map(computeSpeechWeight);
+      const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
-      scenes = cleaned.map((text, idx) => {
-        const w = text.split(/\s+/).length;
-        const segDur = (w / totalWords) * totalDuration;
+      let cursor = 0;
+      scenes = units.map((text, idx) => {
+        const segDur = (weights[idx] / totalWeight) * totalDuration;
         const item = {
           idx,
           text,
@@ -323,7 +346,7 @@
       wrap.innerHTML = scenes.map((sc, i) => `
         <div class="scene-item" id="scCard_${i}" onclick="jumpToScene(${i})">
           <div class="scene-head">
-            <span>#${i + 1} (${formatTime(sc.start)} - ${formatTime(sc.end)})</span>
+            <span>#${i + 1} (${formatTime(sc.start + syncOffsetSec)} - ${formatTime(sc.end + syncOffsetSec)})</span>
             <select onclick="event.stopPropagation()" onchange="changeSceneType(${i}, this.value)">
               ${SCENE_TYPES.map(t => `<option value="${t.id}" ${t.id === sc.type ? "selected" : ""}>${t.label}</option>`).join("")}
             </select>
@@ -342,52 +365,15 @@
 
     function jumpToScene(i) {
       if (!scenes[i]) return;
-      currentTime = scenes[i].start + 0.05;
+      currentTime = Math.max(0, scStartWithOffset(scenes[i]) + 0.05);
       if (narrAudio.src && Number.isFinite(narrAudio.duration)) {
         narrAudio.currentTime = Math.min(narrAudio.duration - 0.1, currentTime);
       }
       drawFrame(currentTime);
     }
 
-    async function generateNeuralVoice() {
-      const text = document.getElementById("scriptInput").value.trim();
-      if (!text) return alert("Enter your script first.");
-      const btn = document.getElementById("genVoiceBtn");
-      const status = document.getElementById("statusMsg");
-
-      btn.disabled = true;
-      btn.textContent = "Generating Neural Voice...";
-      status.textContent = "Synthesizing free neural narration on server...";
-
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text,
-            voice: document.getElementById("voiceSelect").value,
-            rate: document.getElementById("rateSelect").value
-          })
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "TTS request failed");
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        narrAudio.src = url;
-        await new Promise((resolve) => {
-          narrAudio.onloadedmetadata = resolve;
-        });
-        currentTime = 0;
-        rebuildStoryboard();
-        status.textContent = `Neural voice ready (${formatTime(narrAudio.duration)})! Tap Play Preview or Export 16:9 Video.`;
-      } catch (e) {
-        status.textContent = "Voice error: " + e.message;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Generate Free Neural Voice";
-      }
+    function scStartWithOffset(sc) {
+      return sc.start + syncOffsetSec;
     }
 
     function loadUploadedAudio(file) {
@@ -397,7 +383,7 @@
       narrAudio.onloadedmetadata = () => {
         currentTime = 0;
         rebuildStoryboard();
-        document.getElementById("statusMsg").textContent = `Custom audio loaded (${formatTime(narrAudio.duration)}).`;
+        document.getElementById("statusMsg").textContent = `Audio loaded (${formatTime(narrAudio.duration)}) across ${scenes.length} synced scenes.`;
       };
     }
           function formatTime(sec) {
@@ -528,13 +514,17 @@
     }
 
     function drawFrame(t) {
-      const theme = THEMES[document.getElementById("themeSelect").value] || THEMES.dark_ink;
+      const theme = THEMES[document.getElementById("themeSelect").value] || THEMES.survival_sketch;
       const W = canvas.width;
       const H = canvas.height;
+      const adjustedT = t - syncOffsetSec;
 
-      const idx = Math.max(0, scenes.findIndex(s => t >= s.start && t <= s.end));
+      let idx = scenes.findIndex(s => adjustedT >= s.start && adjustedT <= s.end);
+      if (idx === -1) {
+        idx = adjustedT < 0 ? 0 : Math.max(0, scenes.length - 1);
+      }
       const sc = scenes[idx] || { idx: 0, text: "", headline: "CODED STUDIO", type: "stick_walk", start: 0, end: 1 };
-      const localT = Math.max(0, t - sc.start);
+      const localT = Math.max(0, adjustedT - sc.start);
       const progress = Math.min(1, localT / Math.max(0.1, sc.end - sc.start));
 
       if (isPlaying && idx !== lastSceneIdx) {
@@ -693,7 +683,7 @@
       ensureAudioGraph();
       btn.disabled = true;
       dlWrap.innerHTML = "";
-      status.textContent = "Recording 16:9 video with Neural Voice + SFX...";
+      status.textContent = "Recording 16:9 video with Audio + SFX...";
 
       const canvasStream = canvas.captureStream(30);
       const mixedTracks = [
@@ -714,7 +704,7 @@
         const blob = new Blob(chunks, { type: "video/webm" });
         const url = URL.createObjectURL(blob);
         dlWrap.innerHTML = `<a class="dl" href="${url}" download="coded_animation_16x9.webm">Download 16:9 Animated Video (.webm)</a>`;
-        status.textContent = "Export complete! Your 16:9 video includes voiceover + SFX + coded animation.";
+        status.textContent = "Export complete! Your 16:9 video includes narration + SFX + coded animation.";
         btn.disabled = false;
       };
 
@@ -734,4 +724,3 @@
   </script>
 </body>
 </html>
-
