@@ -21,6 +21,17 @@ const jobs = new Map();
 const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
 const VIRAL_TEMPLATES = {
+  song_beat_pulse: {
+    id: "song_beat_pulse",
+    templateName: "0. Song Beat Pulse + Waveform",
+    layout: "song_hype_edit",
+    topHookText: "BEAT DROP GOES CRAZY",
+    bottomTagText: "TURN VOLUME UP",
+    cutDurationSec: 0.75,
+    contrastBoost: 1.14,
+    saturationBoost: 1.24,
+    beatSfx: ["impact", "pop", "whoosh", "tick"]
+  },
   white_meme_hook: {
     id: "white_meme_hook",
     templateName: "1. White Top Banner Meme Hook",
@@ -276,7 +287,7 @@ function wrapBannerText(text, maxCharsPerLine = 24, maxLines = 2) {
   if (current && lines.length < maxLines) lines.push(current);
   return lines.join("\n");
     }
-       app.get("/api/templates", (req, res) => {
+app.get("/api/templates", (req, res) => {
   res.json({ templates: TEMPLATE_LIST });
 });
 
@@ -288,20 +299,20 @@ app.post("/api/invent-template", async (req, res) => {
     try {
       const prompt = `
 Design a viral YouTube Shorts editing template for:
-Niche/Vibe: ${niche || "Funny / shocking / unexpected moments"}
+Niche/Vibe: ${niche || "Song edit / funny / shocking moments"}
 Clips: ${clipCount || 2}
-Layout options: "banner_top_white", "banner_dark_cinema", "split_zoom_focus", "full_punch_cuts".
+Layout options: "song_hype_edit", "banner_top_white", "banner_dark_cinema", "split_zoom_focus", "full_punch_cuts".
 SFX options: "whoosh", "impact", "tick", "riser", "pop".
 Return ONLY valid JSON:
 {
   "templateName": "Short catchy name",
-  "layout": "banner_top_white",
+  "layout": "song_hype_edit",
   "topHookText": "Punchy 4-7 word hook",
   "bottomTagText": "Short 2-4 word tag",
-  "cutDurationSec": 2.0,
-  "contrastBoost": 1.08,
-  "saturationBoost": 1.15,
-  "beatSfx": ["whoosh", "impact", "pop", "riser"]
+  "cutDurationSec": 0.8,
+  "contrastBoost": 1.12,
+  "saturationBoost": 1.2,
+  "beatSfx": ["impact", "pop", "whoosh", "tick"]
 }`;
       const result = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -310,25 +321,26 @@ Return ONLY valid JSON:
       });
       return res.json({ template: JSON.parse(result.text), source: "ai" });
     } catch (err) {
-      console.warn("AI quota/limit hit, using local 12-template engine:", err.message);
+      console.warn("AI quota/limit hit, using local template engine:", err.message);
     }
   }
 
-  return res.json({ template: generateLocalViralTemplate(niche), source: "local_12_templates" });
+  return res.json({ template: generateLocalViralTemplate(niche), source: "local_engine" });
 });
 
 async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFilePath, cropMarginPercent = 0) {
   const outW = 720;
   const outH = 1280;
   const allowedLayouts = new Set([
+    "song_hype_edit",
     "banner_top_white",
     "banner_dark_cinema",
     "split_zoom_focus",
     "full_punch_cuts"
   ]);
   const layout = allowedLayouts.has(template.layout) ? template.layout : "banner_top_white";
-  const contrast = Math.min(1.25, Math.max(0.95, Number(template.contrastBoost) || 1.08));
-  const saturation = Math.min(1.35, Math.max(0.9, Number(template.saturationBoost) || 1.15));
+  const contrast = Math.min(1.3, Math.max(0.95, Number(template.contrastBoost) || 1.1));
+  const saturation = Math.min(1.4, Math.max(0.9, Number(template.saturationBoost) || 1.16));
   const topHook = wrapBannerText(template.topHookText || "WAIT FOR THE END", 24, 2);
   const bottomTag = wrapBannerText(template.bottomTagText || "", 28, 1);
   const beatSfxList =
@@ -344,8 +356,14 @@ async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFi
     const sfxKey = beatSfxList[i % beatSfxList.length];
     const segOut = path.join(workDir, `beat_${path.basename(outFilePath, ".mp4")}_${i}.mp4`);
     const zoomDir = i % 2 === 0 ? 1 : -1;
-    const padScale = 1.14 * wmTrim;
-    const colorGrade = `eq=contrast=${contrast}:saturation=${saturation}`;
+    const padScale = 1.16 * wmTrim;
+
+    // Glow / beat punch brightness pulse on alternating beats for song edits
+    const beatPulse =
+      layout === "song_hype_edit" && i % 2 === 0
+        ? `:brightness=0.06`
+        : "";
+    const colorGrade = `eq=contrast=${contrast}:saturation=${saturation}${beatPulse}`;
 
     const startFrac = (i / slices.length).toFixed(4);
     const endFrac = ((i + 1) / slices.length).toFixed(4);
@@ -365,7 +383,65 @@ async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFi
         }:fontsize=32:x=(w-text_w)/2:y=h-120`
       : "";
 
+    const ffInputs = ["-ss", slice.start.toFixed(2), "-t", slice.duration.toFixed(2), "-i", slice.srcPath];
+    const audioFilters = [];
+    const mixLabels = [];
+
+    if (slice.hasAudio) {
+      audioFilters.push(`[0:a]aresample=44100,volume=0.88[basea]`);
+      mixLabels.push("[basea]");
+    } else {
+      ffInputs.push("-f", "lavfi", "-t", slice.duration.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo");
+      audioFilters.push(`[1:a]volume=0.0[basea]`);
+      mixLabels.push("[basea]");
+    }
+
+    const sfxPath = resolveSfxPath(sfxKey, synthSfxDir);
+    if (sfxPath && layout !== "song_hype_edit") {
+      const sfxIdx = ffInputs.filter((x) => x === "-i").length;
+      ffInputs.push("-i", sfxPath);
+      audioFilters.push(`[${sfxIdx}:a]aresample=44100,volume=0.95[sfxa]`);
+      mixLabels.push("[sfxa]");
+    }
+
+    audioFilters.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=1[outa]`);
+
     let vf = "";
+    if (layout === "song_hype_edit") {
+      // High-energy music edit: punchy zoom crop + glow/color pop + animated waveform bar
+      const scaledW = Math.round(outW * padScale);
+      const scaledH = Math.round(outH * padScale);
+      const dx = scaledW - outW;
+      const dy = scaledH - outH;
+      const cropMotion =
+        zoomDir === 1
+          ? `crop=${outW}:${outH}:x='${dx}*(t/${slice.duration})':y='${dy}*(t/${slice.duration})'`
+          : `crop=${outW}:${outH}:x='${dx}*(1-t/${slice.duration})':y='${dy}*(1-t/${slice.duration})'`;
+
+      vf =
+        `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade}[vid];` +
+        `[outa]asplit=2[wa][ma];` +
+        `[wa]showwaves=s=${outW - 80}x130:mode=cline:colors=#38bdf8|#f472b6:rate=30[wave];` +
+        `[vid][wave]overlay=40:h-290,drawbox=x=24:y=65:w=${outW - 48}:h=135:color=black@0.72:t=fill${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
+
+      await runFFmpeg([
+        ...ffInputs,
+        "-filter_complex", `${vf};${audioFilters.join(";")}`,
+        "-map", "[outv]",
+        "-map", "[ma]",
+        "-r", "30",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        segOut
+      ]);
+      renderedSegments.push(segOut);
+      continue;
+    }
+
     if (layout === "banner_top_white" || layout === "banner_dark_cinema") {
       const isWhite = layout === "banner_top_white";
       const boxH = isWhite ? 820 : 840;
@@ -405,29 +481,6 @@ async function renderSlicesToShort(workDir, synthSfxDir, slices, template, outFi
         `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,${cropMotion},${colorGrade},` +
         `drawbox=x=24:y=65:w=${outW - 48}:h=135:color=black@0.72:t=fill${drawTopText}${drawBottomText}${progressBar},format=yuv420p[outv]`;
     }
-
-    const ffInputs = ["-ss", slice.start.toFixed(2), "-t", slice.duration.toFixed(2), "-i", slice.srcPath];
-    const audioFilters = [];
-    const mixLabels = [];
-
-    if (slice.hasAudio) {
-      audioFilters.push(`[0:a]aresample=44100,volume=0.82[basea]`);
-      mixLabels.push("[basea]");
-    } else {
-      ffInputs.push("-f", "lavfi", "-t", slice.duration.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo");
-      audioFilters.push(`[1:a]volume=0.0[basea]`);
-      mixLabels.push("[basea]");
-    }
-
-    const sfxPath = resolveSfxPath(sfxKey, synthSfxDir);
-    if (sfxPath) {
-      const sfxIdx = ffInputs.filter((x) => x === "-i").length;
-      ffInputs.push("-i", sfxPath);
-      audioFilters.push(`[${sfxIdx}:a]aresample=44100,volume=0.95[sfxa]`);
-      mixLabels.push("[sfxa]");
-    }
-
-    audioFilters.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=1[outa]`);
 
     await runFFmpeg([
       ...ffInputs,
@@ -473,7 +526,7 @@ async function processJob(jobId, clipFiles, template, options) {
     update(10, "Preparing sound effects...");
     await ensureSynthesizedSfx(synthSfxDir);
 
-    const cutSec = Math.min(4.5, Math.max(1.2, Number(template.cutDurationSec) || 2.0));
+    const cutSec = Math.min(4.5, Math.max(0.5, Number(template.cutDurationSec) || 2.0));
     const cropMargin = Number(options.cropMarginPercent) || 0;
     const autoExtractCount = Math.min(4, Math.max(1, Number(options.autoExtractCount) || 1));
 
@@ -494,7 +547,7 @@ async function processJob(jobId, clipFiles, template, options) {
         let cursor = windowStart;
         const windowEnd = Math.min(firstInfo.duration, windowStart + clipLen);
 
-        while (cursor + 0.8 < windowEnd) {
+        while (cursor + 0.45 < windowEnd) {
           const segDur = Math.min(cutSec, windowEnd - cursor);
           slices.push({
             srcPath: clipFiles[0].path,
@@ -520,7 +573,7 @@ async function processJob(jobId, clipFiles, template, options) {
         if (totalTargetSec >= maxShortSec) break;
         const info = await getMediaInfo(clip.path);
         let cursor = 0;
-        while (cursor + 0.8 < info.duration && totalTargetSec < maxShortSec) {
+        while (cursor + 0.45 < info.duration && totalTargetSec < maxShortSec) {
           const segDur = Math.min(cutSec, info.duration - cursor, maxShortSec - totalTargetSec);
           slices.push({
             srcPath: clip.path,
@@ -586,5 +639,5 @@ app.get("/api/status/:jobId", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Shorts Studio (12 Templates) running on ${PORT}`));
-         
+app.listen(PORT, () => console.log(`Shorts Studio (Song Edit + 12 Templates) running on ${PORT}`));
+      
