@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viral Shorts Template Studio (12 Templates)</title>
+  <title>Viral Shorts Template Studio</title>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
     body { margin: 0; padding: 14px; background: #0b0d12; color: #f8fafc; display: flex; justify-content: center; }
@@ -36,11 +36,11 @@
 <body>
   <div class="card">
     <h1>Viral Shorts Template Studio</h1>
-    <p class="sub">12 viral templates + SFX + watermark trim + 5–10m auto-clipper</p>
+    <p class="sub">Song beat edits + viral templates + SFX + watermark trim + auto-clipper</p>
 
     <label>1. Upload Raw Clips or 5–10 Min Video</label>
     <input type="file" id="clips" accept="video/*" multiple />
-    <div class="hint">Upload short clips for 1 Short, or 1 long video to auto-extract multiple Shorts.</div>
+    <div class="hint">Upload clips for 1 Short, or 1 long video to auto-extract multiple Shorts.</div>
 
     <div class="row">
       <div>
@@ -64,16 +64,17 @@
     </div>
 
     <label>2. Video Niche / Hook Idea</label>
-    <input id="niche" placeholder="e.g. Zero brain cell funny fail, Wait till the end..." />
+    <input id="niche" placeholder="e.g. Song beat drop, Zero brain cell fail..." />
 
     <button class="btn btn-ai" id="inventBtn" onclick="inventTemplate()">Pick / Invent Viral Template</button>
 
     <div class="box">
-      <label style="margin-top:0;">12 Viral Templates + Saved Presets</label>
+      <label style="margin-top:0;">Viral Templates + Saved Presets</label>
       <select id="savedSelect" onchange="loadSavedTemplate()"></select>
 
       <label>Layout Style</label>
       <select id="layout">
+        <option value="song_hype_edit">Song Beat Pulse + Audio Waveform</option>
         <option value="banner_top_white">White Top Banner + Centered Clip</option>
         <option value="banner_dark_cinema">Dark Cinema Top/Bottom Banner</option>
         <option value="split_zoom_focus">Split Screen (Full Clip + Zoomed Action)</option>
@@ -81,16 +82,16 @@
       </select>
 
       <label>Top Hook Headline</label>
-      <input id="topHookText" value="BRO HAD ZERO BRAIN CELLS" />
+      <input id="topHookText" value="BEAT DROP GOES CRAZY" />
 
       <div class="row">
         <div>
           <label>Bottom Tag</label>
-          <input id="bottomTagText" value="WAIT FOR THE END..." />
+          <input id="bottomTagText" value="TURN VOLUME UP" />
         </div>
         <div>
-          <label>Cut Speed (Seconds)</label>
-          <input id="cutDurationSec" type="number" step="0.1" min="1.2" max="4.5" value="1.9" />
+          <label>Cut / Beat Speed (Sec)</label>
+          <input id="cutDurationSec" type="number" step="0.1" min="0.5" max="4.5" value="0.8" />
         </div>
       </div>
 
@@ -107,7 +108,8 @@
   </div>
 
   <script>
-    const FALLBACK_12 = [
+    const FALLBACK_TEMPLATES = [
+      { templateName: "0. Song Beat Pulse + Waveform", layout: "song_hype_edit", topHookText: "BEAT DROP GOES CRAZY", bottomTagText: "TURN VOLUME UP", cutDurationSec: 0.75, contrastBoost: 1.14, saturationBoost: 1.24, beatSfx: ["impact", "pop", "whoosh", "tick"] },
       { templateName: "1. White Top Banner Meme Hook", layout: "banner_top_white", topHookText: "BRO HAD ZERO BRAIN CELLS", bottomTagText: "WAIT FOR THE END...", cutDurationSec: 1.9, contrastBoost: 1.08, saturationBoost: 1.15, beatSfx: ["whoosh", "impact", "pop", "riser"] },
       { templateName: "2. Dark Cinema Twist Reveal", layout: "banner_dark_cinema", topHookText: "NOBODY EXPECTED THIS ENDING", bottomTagText: "WATCH UNTIL THE LAST SECOND", cutDurationSec: 2.3, contrastBoost: 1.12, saturationBoost: 1.08, beatSfx: ["riser", "impact", "whoosh", "tick"] },
       { templateName: "3. Split-Screen Zoom Detective", layout: "split_zoom_focus", topHookText: "99% MISS WHAT HAPPENS HERE", bottomTagText: "ZOOMED IN ON THE ACTION", cutDurationSec: 2.1, contrastBoost: 1.07, saturationBoost: 1.14, beatSfx: ["tick", "riser", "impact", "pop"] },
@@ -128,7 +130,7 @@
     }
 
     function getAllTemplates() {
-      return [...getCustomSaved(), ...FALLBACK_12];
+      return [...getCustomSaved(), ...FALLBACK_TEMPLATES];
     }
 
     function refreshTemplateDropdown(selectIndex = 0) {
@@ -141,10 +143,10 @@
 
     function applyTemplateToForm(t) {
       if (!t) return;
-      document.getElementById("layout").value = t.layout || "banner_top_white";
+      document.getElementById("layout").value = t.layout || "song_hype_edit";
       document.getElementById("topHookText").value = t.topHookText || "";
       document.getElementById("bottomTagText").value = t.bottomTagText || "";
-      document.getElementById("cutDurationSec").value = t.cutDurationSec || 2.0;
+      document.getElementById("cutDurationSec").value = t.cutDurationSec || 0.8;
     }
 
     function loadSavedTemplate() {
@@ -158,10 +160,10 @@
         layout: document.getElementById("layout").value,
         topHookText: document.getElementById("topHookText").value,
         bottomTagText: document.getElementById("bottomTagText").value,
-        cutDurationSec: parseFloat(document.getElementById("cutDurationSec").value) || 2.0,
-        contrastBoost: 1.08,
-        saturationBoost: 1.15,
-        beatSfx: ["whoosh", "impact", "pop", "riser"]
+        cutDurationSec: parseFloat(document.getElementById("cutDurationSec").value) || 0.8,
+        contrastBoost: 1.12,
+        saturationBoost: 1.2,
+        beatSfx: ["impact", "pop", "whoosh", "tick"]
       };
     }
 
