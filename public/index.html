@@ -38,12 +38,9 @@
     .scrubber { width: 100%; margin: 10px 0 2px; accent-color: #f59e0b; }
     .time-bar { display: flex; justify-content: space-between; font-size: 0.76rem; color: #94a3b8; }
     .status { font-size: 0.8rem; color: #38bdf8; margin-top: 8px; font-weight: 600; }
-    .clip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; max-height: 240px; overflow-y: auto; }
-    .clip-card {
-      background: #0b0e15; border: 1px solid #242b3d; border-radius: 9px;
-      padding: 6px; cursor: pointer; text-align: left;
-    }
-    .clip-card img { width: 100%; height: 76px; object-fit: cover; border-radius: 6px; display: block; background: #161b26; }
+    .clip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+    .clip-card { background: #0b0e15; border: 1px solid #242b3d; border-radius: 9px; padding: 6px; cursor: pointer; text-align: left; }
+    .clip-card img { width: 100%; height: 74px; object-fit: cover; border-radius: 6px; display: block; background: #161b26; }
     .clip-meta { font-size: 0.72rem; color: #cbd5e1; margin-top: 5px; display: flex; justify-content: space-between; }
     a.dl { display: block; text-align: center; margin-top: 10px; padding: 11px; background: #22c55e; color: #052e16; font-weight: 800; border-radius: 9px; text-decoration: none; }
   </style>
@@ -52,7 +49,7 @@
   <div class="app">
     <div class="card">
       <h1>Freeze-Frame Comedy Editor</h1>
-      <p class="sub">Find clips inside app • Tap preview to set zoom target • Freeze + Punchline</p>
+      <p class="sub">Music Bed + Freeze Zoom + Punchline + Full Export</p>
 
       <div class="stage-wrap" id="stageWrap" onclick="setFocusFromTap(event)">
         <canvas id="stage" width="1080" height="1920"></canvas>
@@ -70,14 +67,14 @@
         <button class="btn btn-primary" onclick="setFreezeAtCurrent()">Set Freeze Here</button>
         <button class="btn btn-export" id="exportBtn" onclick="exportShort()">Export 9:16</button>
       </div>
-      <div class="status" id="statusMsg">Search clips below or upload your own funny clip to start.</div>
+      <div class="status" id="statusMsg">Load a clip, set your freeze spot, and export.</div>
       <div id="downloadWrap"></div>
     </div>
 
     <div class="card">
       <label style="margin-top:0;">Find Clips Inside App</label>
       <div class="search-bar">
-        <input id="clipQueryInput" value="funny fail" placeholder="Search e.g. funny, cat, stunt, reaction..." />
+        <input id="clipQueryInput" value="funny fail" placeholder="Search e.g. funny, cat, stunt..." />
         <button class="btn btn-primary btn-sm" id="searchClipsBtn" onclick="searchClips()">Search</button>
       </div>
       <div class="clip-grid" id="clipResults"></div>
@@ -92,17 +89,17 @@
         </div>
         <div>
           <label>Freeze Punchline</label>
-          <input id="punchInput" value="IT WAS AT THIS MOMENT..." oninput="drawFrame(currentTime)" />
+          <input id="punchInput" value="THIS MAN..." oninput="drawFrame(currentTime)" />
         </div>
       </div>
 
       <div class="row2">
         <div>
-          <label>Freeze Hold Duration</label>
-          <select id="freezeHoldSelect" onchange="recalcDuration(); drawFrame(currentTime);">
-            <option value="1.2">1.2s (Snappy)</option>
-            <option value="1.6" selected>1.6s (Sweet Spot)</option>
-            <option value="2.2">2.2s (Dramatic)</option>
+          <label>Music Bed Vibe</label>
+          <select id="musicStyleSelect">
+            <option value="sneaky_groove" selected>Sneaky Comedy Groove</option>
+            <option value="dark_tension">Dark Suspense Pulse</option>
+            <option value="off">No Music (SFX Only)</option>
           </select>
         </div>
         <div>
@@ -111,6 +108,24 @@
             <option value="scratch_bass" selected>Vinyl Scratch + Sub Bass</option>
             <option value="heartbeat">Heartbeat Tension</option>
             <option value="chime_drop">Record Drop + Chime</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div>
+          <label>Freeze Hold Duration</label>
+          <select id="freezeHoldSelect" onchange="recalcDuration(); drawFrame(currentTime);">
+            <option value="1.2">1.2s (Snappy)</option>
+            <option value="1.5" selected>1.5s (Balanced)</option>
+            <option value="2.0">2.0s (Dramatic)</option>
+          </select>
+        </div>
+        <div>
+          <label>Aftermath Speed</label>
+          <select id="aftermathRateSelect">
+            <option value="1.0" selected>1.0x (Normal Payoff)</option>
+            <option value="0.65">0.65x (Slow-Mo Fail)</option>
           </select>
         </div>
       </div>
@@ -132,7 +147,7 @@
     let hasVideo = false;
     let clipDuration = 6.5;
     let freezePoint = 2.0;
-    let totalDuration = 8.1;
+    let totalDuration = 8.0;
     let currentTime = 0;
     let isPlaying = false;
     let lastRaf = 0;
@@ -143,24 +158,54 @@
 
     let audioCtx = null;
     let destStreamNode = null;
-    let vidAudioSource = null;
+    let musicTimer = null;
 
     function ensureAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         destStreamNode = audioCtx.createMediaStreamDestination();
-        if (srcVideo.captureStream) {
-          try {
-            const vStream = srcVideo.captureStream();
-            if (vStream.getAudioTracks().length) {
-              vidAudioSource = audioCtx.createMediaStreamSource(vStream);
-              vidAudioSource.connect(audioCtx.destination);
-              vidAudioSource.connect(destStreamNode);
-            }
-          } catch {}
-        }
       }
       if (audioCtx.state === "suspended") audioCtx.resume();
+    }
+
+    function startMusicBed() {
+      stopMusicBed();
+      const style = document.getElementById("musicStyleSelect").value;
+      if (style === "off") return;
+      ensureAudio();
+
+      // Sneaky staccato bass/marimba notes or dark suspense pulse
+      const notes = style === "sneaky_groove"
+        ? [146.83, 0, 174.61, 196.0, 220.0, 0, 174.61, 130.81]
+        : [110.0, 110.0, 123.47, 110.0, 98.0, 98.0, 110.0, 82.41];
+
+      let step = 0;
+      musicTimer = setInterval(() => {
+        if (!isPlaying || !audioCtx) return;
+        const freq = notes[step % notes.length];
+        step++;
+        if (!freq) return;
+
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = style === "sneaky_groove" ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.085, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        gain.connect(destStreamNode);
+        osc.start(now);
+        osc.stop(now + 0.23);
+      }, 280);
+    }
+
+    function stopMusicBed() {
+      if (musicTimer) {
+        clearInterval(musicTimer);
+        musicTimer = null;
+      }
     }
 
     function playFreezeSfx() {
@@ -241,7 +286,7 @@
         if (!res.ok) throw new Error(data.error || "Clip search failed");
 
         if (!data.clips || !data.clips.length) {
-          grid.innerHTML = `<div style="font-size:0.78rem; color:#94a3b8;">No clips found. Try another keyword.</div>`;
+          grid.innerHTML = `<div style="font-size:0.78rem; color:#94a3b8;">No clips found.</div>`;
           status.textContent = "No matching clips found.";
           return;
         }
@@ -255,7 +300,7 @@
             </div>
           </div>
         `).join("");
-        status.textContent = `Found ${data.clips.length} clips. Tap any card to load into stage.`;
+        status.textContent = `Found ${data.clips.length} clips. Tap any card to load.`;
       } catch (err) {
         status.textContent = err.message;
       } finally {
@@ -265,14 +310,12 @@
     }
 
     function selectRemoteClip(encodedUrl, dur) {
-      const url = decodeURIComponent(encodedUrl);
-      attachVideoSource(url, dur, "Remote clip loaded. Tap stage to set zoom point.");
+      attachVideoSource(decodeURIComponent(encodedUrl), dur, "Clip loaded. Tap preview to set zoom target.");
     }
 
     function loadClipFile(file) {
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      attachVideoSource(url, null, "Local clip loaded. Tap stage to set zoom point.");
+      attachVideoSource(URL.createObjectURL(file), null, "Clip loaded. Tap preview to set zoom target.");
     }
 
     function attachVideoSource(url, fallbackDur, readyMsg) {
@@ -280,25 +323,24 @@
       srcVideo.src = url;
       srcVideo.onloadedmetadata = () => {
         hasVideo = true;
-        clipDuration = Math.min(25, Math.max(2.5, srcVideo.duration || fallbackDur || 6.5));
-        freezePoint = Math.min(Math.max(0.8, clipDuration * 0.4), clipDuration - 0.8);
+        clipDuration = Math.min(20, Math.max(2.5, srcVideo.duration || fallbackDur || 6.5));
+        // Keep freeze well before the end so aftermath plays out cleanly
+        freezePoint = Math.min(Math.max(0.8, clipDuration * 0.42), Math.max(1.0, clipDuration - 1.6));
         currentTime = 0;
         recalcDuration();
         drawFrame(0);
         document.getElementById("statusMsg").textContent = readyMsg;
       };
-      srcVideo.onerror = () => {
-        document.getElementById("statusMsg").textContent = "Could not load that video stream. Try another clip or upload a file.";
-      };
     }
 
     function recalcDuration() {
-      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
       totalDuration = clipDuration + hold;
       document.getElementById("totTime").textContent = formatSec(totalDuration);
       document.getElementById("freezeBadge").textContent = `Freeze @ ${freezePoint.toFixed(1)}s`;
     }
-          function setFocusFromTap(ev) {
+
+    function setFocusFromTap(ev) {
       const rect = stageWrap.getBoundingClientRect();
       focusX = Math.min(0.85, Math.max(0.15, (ev.clientX - rect.left) / rect.width));
       focusY = Math.min(0.85, Math.max(0.15, (ev.clientY - rect.top) / rect.height));
@@ -312,8 +354,8 @@
     }
 
     function setFreezeAtCurrent() {
-      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
-      freezePoint = Math.min(Math.max(0.5, currentTime), Math.max(0.8, totalDuration - hold - 0.5));
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
+      freezePoint = Math.min(Math.max(0.5, currentTime), Math.max(0.8, totalDuration - hold - 0.8));
       recalcDuration();
       drawFrame(currentTime);
       document.getElementById("statusMsg").textContent = `Freeze set at ${freezePoint.toFixed(1)}s.`;
@@ -334,14 +376,16 @@
 
     function syncVideoToTimeline(t) {
       if (!hasVideo) return;
-      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
+      const rate = parseFloat(document.getElementById("aftermathRateSelect").value) || 1.0;
       let targetVidTime = t;
       if (t >= freezePoint && t <= freezePoint + hold) {
         targetVidTime = freezePoint;
       } else if (t > freezePoint + hold) {
-        targetVidTime = freezePoint + (t - (freezePoint + hold));
+        targetVidTime = freezePoint + (t - (freezePoint + hold)) * rate;
       }
-      if (Math.abs(srcVideo.currentTime - targetVidTime) > 0.08) {
+      srcVideo.playbackRate = t > freezePoint + hold ? rate : 1.0;
+      if (Math.abs(srcVideo.currentTime - targetVidTime) > 0.12) {
         srcVideo.currentTime = Math.min(srcVideo.duration || targetVidTime, Math.max(0, targetVidTime));
       }
     }
@@ -356,6 +400,7 @@
       isPlaying = true;
       freezeSfxPlayed = false;
       document.getElementById("playBtn").textContent = "Pause";
+      startMusicBed();
       if (hasVideo) {
         syncVideoToTimeline(currentTime);
         srcVideo.play().catch(() => {});
@@ -367,6 +412,7 @@
     function stopPlay() {
       isPlaying = false;
       document.getElementById("playBtn").textContent = "Play Short";
+      stopMusicBed();
       if (hasVideo && !srcVideo.paused) srcVideo.pause();
     }
 
@@ -384,7 +430,7 @@
         return;
       }
 
-      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
       const inFreeze = currentTime >= freezePoint && currentTime <= freezePoint + hold;
 
       if (inFreeze) {
@@ -405,9 +451,9 @@
     function drawFrame(t) {
       const W = canvas.width;
       const H = canvas.height;
-      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
       const inFreeze = t >= freezePoint && t <= freezePoint + hold;
-      const postFreezeShake = t > freezePoint + hold && t < freezePoint + hold + 0.35;
+      const postFreezeShake = t > freezePoint + hold && t < freezePoint + hold + 0.4;
 
       document.getElementById("curTime").textContent = formatSec(t);
       document.getElementById("scrubber").value = Math.round((t / Math.max(0.1, totalDuration)) * 1000);
@@ -416,7 +462,7 @@
       ctx.fillStyle = "#05070a";
       ctx.fillRect(0, 0, W, H);
 
-      const zoom = inFreeze ? 1.55 : (1.03 + Math.sin(t * 1.4) * 0.02);
+      const zoom = inFreeze ? 1.52 : (1.03 + Math.sin(t * 1.4) * 0.02);
       const shakeX = postFreezeShake ? (Math.random() - 0.5) * 28 : 0;
       const shakeY = postFreezeShake ? (Math.random() - 0.5) * 28 : 0;
 
@@ -439,11 +485,6 @@
       } else {
         ctx.fillStyle = inFreeze ? "#18181b" : "#111622";
         ctx.fillRect(0, 0, W, H);
-        ctx.strokeStyle = "#f59e0b";
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.arc(fx, fy, 95, 0, Math.PI * 2);
-        ctx.stroke();
       }
 
       if (!isPlaying) {
@@ -481,7 +522,7 @@
         ctx.fillStyle = "#ffffff";
         ctx.font = "900 42px system-ui";
         ctx.textAlign = "center";
-        ctx.fillText((punch || "FREEZE FRAME").slice(0, 30), W / 2, H - 446);
+        ctx.fillText((punch || "THIS MAN...").slice(0, 30), W / 2, H - 446);
       }
     }
 
@@ -491,9 +532,10 @@
       const dlWrap = document.getElementById("downloadWrap");
 
       ensureAudio();
+      stopPlay();
       btn.disabled = true;
       dlWrap.innerHTML = "";
-      status.textContent = "Exporting 9:16 Freeze-Frame Short...";
+      status.textContent = "Recording full 9:16 Short... keep screen on until done.";
 
       const vStream = canvas.captureStream(30);
       const tracks = [...vStream.getVideoTracks()];
@@ -505,29 +547,63 @@
         ? "video/webm;codecs=vp9,opus"
         : "video/webm";
 
-      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4000000 });
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3500000 });
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: "video/webm" });
         const url = URL.createObjectURL(blob);
-        dlWrap.innerHTML = `<a class="dl" href="${url}" download="freeze_frame_short_9x16.webm">Download 9:16 Short (.webm)</a>`;
-        status.textContent = "Export ready! Tap Download above.";
+        dlWrap.innerHTML = `<a class="dl" href="${url}" download="freeze_frame_short_9x16.webm">Download Full 9:16 Short (.webm)</a>`;
+        status.textContent = `Export finished (${totalDuration.toFixed(1)}s). Tap Download above.`;
         btn.disabled = false;
       };
 
       currentTime = 0;
+      freezeSfxPlayed = false;
       syncVideoToTimeline(0);
-      recorder.start(250);
-      startPlay();
+      drawFrame(0);
 
-      const timer = setInterval(() => {
-        if (!isPlaying) {
-          clearInterval(timer);
+      recorder.start(250);
+      isPlaying = true;
+      document.getElementById("playBtn").textContent = "Pause";
+      startMusicBed();
+      if (hasVideo) srcVideo.play().catch(() => {});
+
+      const exportStart = performance.now();
+      const targetMs = totalDuration * 1000 + 350;
+      lastRaf = exportStart;
+
+      function recordTick(now) {
+        const dt = (now - lastRaf) / 1000;
+        lastRaf = now;
+        currentTime = Math.min(totalDuration, currentTime + dt);
+
+        const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.5;
+        const inFreeze = currentTime >= freezePoint && currentTime <= freezePoint + hold;
+
+        if (inFreeze) {
+          if (!freezeSfxPlayed) {
+            freezeSfxPlayed = true;
+            playFreezeSfx();
+          }
+          if (hasVideo && !srcVideo.paused) srcVideo.pause();
+        } else if (hasVideo && srcVideo.paused) {
+          syncVideoToTimeline(currentTime);
+          srcVideo.play().catch(() => {});
+        }
+
+        drawFrame(currentTime);
+
+        if (performance.now() - exportStart < targetMs) {
+          requestAnimationFrame(recordTick);
+        } else {
+          stopPlay();
           if (recorder.state !== "inactive") recorder.stop();
         }
-      }, 250);
+      }
+
+      requestAnimationFrame(recordTick);
     }
 
     recalcDuration();
