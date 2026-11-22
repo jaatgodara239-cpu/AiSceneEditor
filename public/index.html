@@ -3,27 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>16:9 Coded Animation Studio (Sync + SFX)</title>
+  <title>9:16 Freeze-Frame Comedy Shorts Editor</title>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
     body { margin: 0; padding: 12px; background: #090b10; color: #f8fafc; display: flex; justify-content: center; }
-    .app { width: 100%; max-width: 720px; }
+    .app { width: 100%; max-width: 540px; }
     .card { background: #121620; border: 1px solid #232938; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
     h1 { font-size: 1.15rem; margin: 0 0 3px; }
     .sub { color: #94a3b8; font-size: 0.8rem; margin: 0 0 10px; }
-    .stage-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #05070a; border-radius: 10px; overflow: hidden; border: 1px solid #2b3346; }
+    .stage-wrap {
+      position: relative; width: 270px; max-width: 100%; aspect-ratio: 9 / 16;
+      margin: 0 auto; background: #05070a; border-radius: 14px; overflow: hidden;
+      border: 2px solid #2b3346; touch-action: manipulation;
+    }
     canvas { width: 100%; height: 100%; display: block; }
     .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     label { display: block; font-size: 0.78rem; font-weight: 600; color: #cbd5e1; margin: 10px 0 4px; }
-    input, select, textarea {
+    input, select {
       width: 100%; padding: 9px 11px; border-radius: 9px; border: 1px solid #2a3142;
       background: #090b10; color: #f8fafc; font-size: 0.88rem;
     }
-    textarea { min-height: 125px; resize: vertical; line-height: 1.45; }
     .btn {
       padding: 11px 10px; border: none; border-radius: 9px; font-weight: 700;
-      font-size: 0.86rem; cursor: pointer; width: 100%;
+      font-size: 0.84rem; cursor: pointer; width: 100%;
     }
     .btn-primary { background: #f59e0b; color: #1c1002; }
     .btn-play { background: #22c55e; color: #052e16; }
@@ -32,12 +35,6 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .scrubber { width: 100%; margin: 10px 0 2px; accent-color: #f59e0b; }
     .time-bar { display: flex; justify-content: space-between; font-size: 0.76rem; color: #94a3b8; }
-    .scene-list { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-    .scene-item { background: #0b0e15; border: 1px solid #232a3b; border-radius: 9px; padding: 9px; }
-    .scene-item.active { border-color: #f59e0b; }
-    .scene-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.76rem; color: #f59e0b; font-weight: 700; }
-    .scene-item select { padding: 5px 8px; font-size: 0.78rem; width: auto; }
-    .scene-text { font-size: 0.82rem; color: #e2e8f0; line-height: 1.35; }
     .status { font-size: 0.8rem; color: #38bdf8; margin-top: 8px; font-weight: 600; }
     a.dl { display: block; text-align: center; margin-top: 10px; padding: 11px; background: #22c55e; color: #052e16; font-weight: 800; border-radius: 9px; text-decoration: none; }
   </style>
@@ -45,348 +42,219 @@
 <body>
   <div class="app">
     <div class="card">
-      <h1>16:9 Coded Animation Studio</h1>
-      <p class="sub">Punctuation-Synced Subtitles + Procedural SFX + Stick-Figure & Motion Graphics</p>
+      <h1>Freeze-Frame Comedy Editor</h1>
+      <p class="sub">Tap preview to set zoom target • Freeze + Monologue + Punchline</p>
 
-      <div class="stage-wrap">
-        <canvas id="stage" width="1280" height="720"></canvas>
+      <div class="stage-wrap" id="stageWrap" onclick="setFocusFromTap(event)">
+        <canvas id="stage" width="1080" height="1920"></canvas>
       </div>
 
       <input type="range" id="scrubber" class="scrubber" min="0" max="1000" value="0" oninput="seekScrubber(this.value)" />
       <div class="time-bar">
         <span id="curTime">00:00</span>
-        <span id="sceneBadge">Scene 1 / 1</span>
-        <span id="totTime">00:30</span>
+        <span id="freezeBadge">Freeze @ 02.0s</span>
+        <span id="totTime">00:08</span>
       </div>
 
       <div class="controls">
-        <button class="btn btn-play" id="playBtn" onclick="togglePlay()">Play Preview</button>
-        <button class="btn btn-ghost" onclick="testSfx()">Test SFX</button>
-        <button class="btn btn-export" id="exportBtn" onclick="exportVideo()">Export 16:9 Video</button>
+        <button class="btn btn-play" id="playBtn" onclick="togglePlay()">Play Short</button>
+        <button class="btn btn-primary" onclick="setFreezeAtCurrent()">Set Freeze Here</button>
+        <button class="btn btn-export" id="exportBtn" onclick="exportShort()">Export 9:16</button>
       </div>
-      <div class="status" id="statusMsg">Upload your narration audio and tap "Re-Sync Subtitles".</div>
+      <div class="status" id="statusMsg">Upload a funny clip to start, or preview with the test frame.</div>
       <div id="downloadWrap"></div>
     </div>
 
     <div class="card">
-      <div class="row2">
-        <div>
-          <label style="margin-top:0;">Video Topic / Title</label>
-          <input id="topicInput" value="Procrastination" />
-        </div>
-        <div>
-          <label style="margin-top:0;">Visual Theme</label>
-          <select id="themeSelect" onchange="drawFrame(currentTime)">
-            <option value="dark_ink">Dark Ink Stick-Figure</option>
-            <option value="amber_blueprint">Amber Psychology Blueprint</option>
-            <option value="survival_sketch" selected>Minimalist Survival Sketch</option>
-          </select>
-        </div>
-      </div>
-
-      <label>Full Script (4–5 Min Script Supported)</label>
-      <textarea id="scriptInput">You have a deadline. You know exactly what to do. And yet, you're watching videos instead. Why? You're not lazy. Science says so. For decades, we blamed bad time management. Make a schedule. Download an app. Try harder tomorrow. None of that works when your brain is protecting you from emotional discomfort.</textarea>
+      <label style="margin-top:0;">Upload Funny Clip (MP4 / MOV / WEBM)</label>
+      <input type="file" id="clipInput" accept="video/*" onchange="loadClip(this.files[0])" />
 
       <div class="row2">
         <div>
-          <label>Upload Narration Audio (MP3/WAV/M4A)</label>
-          <input type="file" id="audioUpload" accept="audio/*" onchange="loadUploadedAudio(this.files[0])" />
+          <label>Top Hook Caption</label>
+          <input id="hookInput" value="WAIT FOR THE INSTANT REGRET" oninput="drawFrame(currentTime)" />
         </div>
         <div>
-          <label>Scene Grouping Pacing</label>
-          <select id="groupModeSelect" onchange="rebuildStoryboard()">
-            <option value="grouped" selected>Smooth Grouped Beats (Recommended)</option>
-            <option value="balanced">Balanced Sentences</option>
-            <option value="every_sentence">Every Sentence (Fast Cuts)</option>
-          </select>
+          <label>Freeze Punchline</label>
+          <input id="punchInput" value="IT WAS AT THIS MOMENT..." oninput="drawFrame(currentTime)" />
         </div>
       </div>
 
       <div class="row2">
         <div>
-          <label>Subtitle Sync Offset (Sec): <span id="offsetVal">0.0s</span></label>
-          <input type="range" id="syncOffset" min="-4" max="4" step="0.1" value="0" oninput="updateSyncOffset(this.value)" />
+          <label>Freeze Hold Duration</label>
+          <select id="freezeHoldSelect" onchange="recalcDuration(); drawFrame(currentTime);">
+            <option value="1.2">1.2s (Snappy)</option>
+            <option value="1.6" selected>1.6s (Sweet Spot)</option>
+            <option value="2.2">2.2s (Dramatic)</option>
+          </select>
         </div>
         <div>
-          <label>Background Drone + SFX Level</label>
-          <select id="sfxModeSelect">
-            <option value="full" selected>SFX + Dark Ambient Drone</option>
-            <option value="sfx_only">Transition SFX Only</option>
-            <option value="off">Voice Only (No SFX)</option>
+          <label>Freeze SFX Cue</label>
+          <select id="sfxTypeSelect">
+            <option value="scratch_bass" selected>Vinyl Scratch + Sub Bass</option>
+            <option value="heartbeat">Heartbeat Tension</option>
+            <option value="chime_drop">Record Drop + Chime</option>
           </select>
         </div>
       </div>
 
-      <button class="btn btn-primary" style="margin-top:10px;" onclick="rebuildStoryboard()">Re-Sync Subtitles & Scenes</button>
-    </div>
-
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <strong style="font-size:0.9rem;">Coded Animation Storyboard</strong>
-        <span style="font-size:0.75rem; color:#94a3b8;">Tap any scene to preview or switch animation</span>
+      <div class="row2" style="margin-top:10px;">
+        <button class="btn btn-ghost" onclick="resetFocus()">Center Zoom Target</button>
+        <button class="btn btn-ghost" onclick="playFreezeSfx()">Test Freeze SFX</button>
       </div>
-      <div class="scene-list" id="sceneList"></div>
     </div>
   </div>
 
-  <audio id="narrAudio" crossorigin="anonymous"></audio>
+  <video id="srcVideo" playsinline muted crossorigin="anonymous" style="display:none;"></video>
     <script>
     const canvas = document.getElementById("stage");
     const ctx = canvas.getContext("2d");
-    const narrAudio = document.getElementById("narrAudio");
+    const stageWrap = document.getElementById("stageWrap");
+    const srcVideo = document.getElementById("srcVideo");
 
-    const SCENE_TYPES = [
-      { id: "stick_walk", label: "Stick-Figure Walk & Spotlight" },
-      { id: "crowd_outlier", label: "Crowd vs. Outlier Stick Figures" },
-      { id: "brain_network", label: "Neural Brain Network Pulse" },
-      { id: "rising_chart", label: "Animated Growth / Stress Curve" },
-      { id: "timeline_clock", label: "Animated Clock & Time Distortion" },
-      { id: "split_compare", label: "Split Comparison Diagram" },
-      { id: "heartbeat_meter", label: "Tension Heartbeat & Danger Meter" }
-    ];
-
-    const THEMES = {
-      dark_ink: { bg: "#090b10", grid: "#151a26", ink: "#f8fafc", accent: "#f59e0b", sub: "#94a3b8" },
-      amber_blueprint: { bg: "#0c0a07", grid: "#1f1910", ink: "#fef3c7", accent: "#fb923c", sub: "#d6c3a5" },
-      survival_sketch: { bg: "#070d0c", grid: "#10201d", ink: "#ecfdf5", accent: "#34d399", sub: "#99c2b5" }
-    };
-
-    let scenes = [];
-    let totalDuration = 30;
+    let hasVideo = false;
+    let clipDuration = 6.5;
+    let freezePoint = 2.0;
+    let totalDuration = 8.1;
     let currentTime = 0;
-    let syncOffsetSec = 0;
     let isPlaying = false;
     let lastRaf = 0;
-    let lastSceneIdx = -1;
+    let freezeSfxPlayed = false;
+
+    // Normalized focus coordinates (0..1) inside the 9:16 frame
+    let focusX = 0.5;
+    let focusY = 0.42;
 
     let audioCtx = null;
-    let mediaNode = null;
     let destStreamNode = null;
-    let droneOsc = null;
-    let droneGain = null;
+    let vidAudioSource = null;
 
-    function ensureAudioGraph() {
+    function ensureAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         destStreamNode = audioCtx.createMediaStreamDestination();
-        mediaNode = audioCtx.createMediaElementSource(narrAudio);
-        mediaNode.connect(audioCtx.destination);
-        mediaNode.connect(destStreamNode);
+        if (srcVideo.captureStream) {
+          try {
+            const vStream = srcVideo.captureStream();
+            if (vStream.getAudioTracks().length) {
+              vidAudioSource = audioCtx.createMediaStreamSource(vStream);
+              vidAudioSource.connect(audioCtx.destination);
+              vidAudioSource.connect(destStreamNode);
+            }
+          } catch {}
+        }
       }
       if (audioCtx.state === "suspended") audioCtx.resume();
     }
 
-    function startDrone() {
-      const mode = document.getElementById("sfxModeSelect").value;
-      if (mode !== "full") return;
-      ensureAudioGraph();
-      if (droneOsc) return;
-      droneOsc = audioCtx.createOscillator();
-      droneGain = audioCtx.createGain();
-      droneOsc.type = "sine";
-      droneOsc.frequency.value = 58;
-      droneGain.gain.value = 0.035;
-      droneOsc.connect(droneGain);
-      droneGain.connect(audioCtx.destination);
-      droneGain.connect(destStreamNode);
-      droneOsc.start();
-    }
-
-    function stopDrone() {
-      if (droneOsc) {
-        try { droneOsc.stop(); } catch {}
-        droneOsc.disconnect();
-        droneOsc = null;
-      }
-    }
-
-    function playProceduralSfx(kind = "whoosh") {
-      const mode = document.getElementById("sfxModeSelect").value;
-      if (mode === "off") return;
-      ensureAudioGraph();
+    function playFreezeSfx() {
+      ensureAudio();
+      const kind = document.getElementById("sfxTypeSelect").value;
       const now = audioCtx.currentTime;
 
-      if (kind === "whoosh") {
-        const bufferSize = audioCtx.sampleRate * 0.25;
-        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
-        const noise = audioCtx.createBufferSource();
-        noise.buffer = buffer;
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = "bandpass";
-        filter.frequency.setValueAtTime(280, now);
-        filter.frequency.exponentialRampToValueAtTime(1050, now + 0.22);
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(audioCtx.destination);
-        gain.connect(destStreamNode);
-        noise.start(now);
-      } else {
+      if (kind === "scratch_bass") {
+        // Pitch-drop scratch + punchy sub hit
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(130, now);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.32);
-        gain.gain.setValueAtTime(0.22, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(640, now);
+        osc.frequency.exponentialRampToValueAtTime(75, now + 0.28);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         gain.connect(destStreamNode);
         osc.start(now);
-        osc.stop(now + 0.35);
+        osc.stop(now + 0.31);
+
+        const sub = audioCtx.createOscillator();
+        const subGain = audioCtx.createGain();
+        sub.type = "sine";
+        sub.frequency.setValueAtTime(125, now + 0.06);
+        sub.frequency.exponentialRampToValueAtTime(36, now + 0.55);
+        subGain.gain.setValueAtTime(0.32, now + 0.06);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
+        sub.connect(subGain);
+        subGain.connect(audioCtx.destination);
+        subGain.connect(destStreamNode);
+        sub.start(now + 0.06);
+        sub.stop(now + 0.6);
+      } else if (kind === "heartbeat") {
+        [0, 0.24].forEach((offset) => {
+          const hb = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          hb.type = "sine";
+          hb.frequency.setValueAtTime(92, now + offset);
+          hb.frequency.exponentialRampToValueAtTime(42, now + offset + 0.16);
+          g.gain.setValueAtTime(0.28, now + offset);
+          g.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.18);
+          hb.connect(g);
+          g.connect(audioCtx.destination);
+          g.connect(destStreamNode);
+          hb.start(now + offset);
+          hb.stop(now + offset + 0.19);
+        });
+      } else {
+        const chime = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        chime.type = "triangle";
+        chime.frequency.setValueAtTime(880, now);
+        chime.frequency.exponentialRampToValueAtTime(440, now + 0.25);
+        g.gain.setValueAtTime(0.2, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+        chime.connect(g);
+        g.connect(audioCtx.destination);
+        g.connect(destStreamNode);
+        chime.start(now);
+        chime.stop(now + 0.27);
       }
     }
 
-    function testSfx() {
-      playProceduralSfx("whoosh");
-      setTimeout(() => playProceduralSfx("impact"), 250);
+    function recalcDuration() {
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      totalDuration = clipDuration + hold;
+      document.getElementById("totTime").textContent = formatSec(totalDuration);
+      document.getElementById("freezeBadge").textContent = `Freeze @ ${freezePoint.toFixed(1)}s`;
     }
 
-    function updateSyncOffset(val) {
-      syncOffsetSec = parseFloat(val) || 0;
-      document.getElementById("offsetVal").textContent = `${syncOffsetSec >= 0 ? "+" : ""}${syncOffsetSec.toFixed(1)}s`;
-      drawFrame(currentTime);
-    }
-
-    function pickSceneType(sentence, index) {
-      const s = sentence.toLowerCase();
-      if (/brain|mind|cortex|think|memory|amygdala|emotion|discomfort/.test(s)) return "brain_network";
-      if (/crowd|everyone|people|society|procrastinat|deadline/.test(s)) return "crowd_outlier";
-      if (/time|clock|hour|midnight|3 am|tomorrow|schedule/.test(s)) return "timeline_clock";
-      if (/danger|alarm|stress|heart|fear|crisis|survival|stuck/.test(s)) return "heartbeat_meter";
-      if (/vs|versus|compare|difference|instead|but|yet/.test(s)) return "split_compare";
-      if (/grow|rise|up|loop|increase|multiply|level/.test(s)) return "rising_chart";
-      return SCENE_TYPES[index % SCENE_TYPES.length].id;
-    }
-
-    function extractHeadline(sentence) {
-      const words = sentence.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/);
-      return words.slice(0, 4).join(" ").toUpperCase() || "KEY INSIGHT";
-    }
-
-    function groupSentences(rawSentences, mode) {
-      const cleaned = rawSentences.map(s => s.trim()).filter(Boolean);
-      if (mode === "every_sentence") return cleaned;
-
-      const minWords = mode === "grouped" ? 11 : 7;
-      const merged = [];
-      let buf = "";
-
-      for (const s of cleaned) {
-        const next = (buf + " " + s).trim();
-        const wordCount = next.split(/\s+/).length;
-        if (!buf) {
-          buf = s;
-        } else if (buf.split(/\s+/).length < minWords && wordCount <= 24) {
-          buf = next;
-        } else {
-          merged.push(buf);
-          buf = s;
-        }
-      }
-      if (buf) {
-        if (merged.length && buf.split(/\s+/).length <= 4) {
-          merged[merged.length - 1] = (merged[merged.length - 1] + " " + buf).trim();
-        } else {
-          merged.push(buf);
-        }
-      }
-      return merged;
-    }
-
-    function computeSpeechWeight(segText) {
-      const words = segText.trim().split(/\s+/).filter(Boolean);
-      let weight = words.length;
-      // Add natural spoken pause weight for sentence breaks and commas
-      const endPauses = (segText.match(/[.!?]+/g) || []).length * 1.4;
-      const midPauses = (segText.match(/[,;:—–-]/g) || []).length * 0.45;
-      return Math.max(2.2, weight + endPauses + midPauses);
-    }
-
-    function rebuildStoryboard() {
-      const script = document.getElementById("scriptInput").value.trim();
-      const rawSentences = script.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || ["Your story begins here."];
-      const mode = document.getElementById("groupModeSelect").value;
-      const units = groupSentences(rawSentences, mode);
-
-      const dur = Number.isFinite(narrAudio.duration) && narrAudio.duration > 1
-        ? narrAudio.duration
-        : Math.max(12, script.split(/\s+/).length * 0.42);
-
-      totalDuration = dur;
-      const weights = units.map(computeSpeechWeight);
-      const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
-
-      let cursor = 0;
-      scenes = units.map((text, idx) => {
-        const segDur = (weights[idx] / totalWeight) * totalDuration;
-        const item = {
-          idx,
-          text,
-          headline: extractHeadline(text),
-          type: pickSceneType(text, idx),
-          start: cursor,
-          end: cursor + segDur
-        };
-        cursor += segDur;
-        return item;
-      });
-
-      document.getElementById("totTime").textContent = formatTime(totalDuration);
-      renderSceneList();
-      drawFrame(currentTime);
-    }
-
-    function renderSceneList() {
-      const wrap = document.getElementById("sceneList");
-      wrap.innerHTML = scenes.map((sc, i) => `
-        <div class="scene-item" id="scCard_${i}" onclick="jumpToScene(${i})">
-          <div class="scene-head">
-            <span>#${i + 1} (${formatTime(sc.start + syncOffsetSec)} - ${formatTime(sc.end + syncOffsetSec)})</span>
-            <select onclick="event.stopPropagation()" onchange="changeSceneType(${i}, this.value)">
-              ${SCENE_TYPES.map(t => `<option value="${t.id}" ${t.id === sc.type ? "selected" : ""}>${t.label}</option>`).join("")}
-            </select>
-          </div>
-          <div class="scene-text">${sc.text}</div>
-        </div>
-      `).join("");
-    }
-
-    function changeSceneType(i, val) {
-      if (scenes[i]) {
-        scenes[i].type = val;
-        drawFrame(currentTime);
-      }
-    }
-
-    function jumpToScene(i) {
-      if (!scenes[i]) return;
-      currentTime = Math.max(0, scStartWithOffset(scenes[i]) + 0.05);
-      if (narrAudio.src && Number.isFinite(narrAudio.duration)) {
-        narrAudio.currentTime = Math.min(narrAudio.duration - 0.1, currentTime);
-      }
-      drawFrame(currentTime);
-    }
-
-    function scStartWithOffset(sc) {
-      return sc.start + syncOffsetSec;
-    }
-
-    function loadUploadedAudio(file) {
+    function loadClip(file) {
       if (!file) return;
       const url = URL.createObjectURL(file);
-      narrAudio.src = url;
-      narrAudio.onloadedmetadata = () => {
+      srcVideo.src = url;
+      srcVideo.onloadedmetadata = () => {
+        hasVideo = true;
+        clipDuration = Math.min(25, Math.max(2.5, srcVideo.duration || 6.5));
+        freezePoint = Math.min(Math.max(0.8, clipDuration * 0.4), clipDuration - 0.8);
         currentTime = 0;
-        rebuildStoryboard();
-        document.getElementById("statusMsg").textContent = `Audio loaded (${formatTime(narrAudio.duration)}) across ${scenes.length} synced scenes.`;
+        recalcDuration();
+        drawFrame(0);
+        document.getElementById("statusMsg").textContent = `Clip loaded (${clipDuration.toFixed(1)}s). Tap preview to set zoom point.`;
       };
     }
-          function formatTime(sec) {
+
+    function setFocusFromTap(ev) {
+      const rect = stageWrap.getBoundingClientRect();
+      focusX = Math.min(0.85, Math.max(0.15, (ev.clientX - rect.left) / rect.width));
+      focusY = Math.min(0.85, Math.max(0.15, (ev.clientY - rect.top) / rect.height));
+      drawFrame(currentTime);
+    }
+
+    function resetFocus() {
+      focusX = 0.5;
+      focusY = 0.42;
+      drawFrame(currentTime);
+    }
+
+    function setFreezeAtCurrent() {
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      freezePoint = Math.min(Math.max(0.5, currentTime), Math.max(0.8, totalDuration - hold - 0.5));
+      recalcDuration();
+      drawFrame(currentTime);
+      document.getElementById("statusMsg").textContent = `Freeze set at ${freezePoint.toFixed(1)}s.`;
+    }
+
+    function formatSec(sec) {
       const s = Math.max(0, Math.floor(sec || 0));
       const m = Math.floor(s / 60);
       const r = s % 60;
@@ -394,333 +262,217 @@
     }
 
     function seekScrubber(val) {
-      const t = (Number(val) / 1000) * totalDuration;
-      currentTime = t;
-      if (narrAudio.src && Number.isFinite(narrAudio.duration)) {
-        narrAudio.currentTime = Math.min(narrAudio.duration - 0.05, t);
-      }
+      currentTime = (Number(val) / 1000) * totalDuration;
+      syncVideoToTimeline(currentTime);
       drawFrame(currentTime);
     }
 
-    function togglePlay() {
-      if (isPlaying) {
-        stopPlayback();
-      } else {
-        startPlayback();
+    function syncVideoToTimeline(t) {
+      if (!hasVideo) return;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      let targetVidTime = t;
+      if (t >= freezePoint && t <= freezePoint + hold) {
+        targetVidTime = freezePoint;
+      } else if (t > freezePoint + hold) {
+        targetVidTime = freezePoint + (t - (freezePoint + hold));
+      }
+      if (Math.abs(srcVideo.currentTime - targetVidTime) > 0.08) {
+        srcVideo.currentTime = Math.min(srcVideo.duration || targetVidTime, Math.max(0, targetVidTime));
       }
     }
 
-    function startPlayback() {
-      ensureAudioGraph();
-      if (!scenes.length) rebuildStoryboard();
-      isPlaying = true;
-      lastSceneIdx = -1;
-      document.getElementById("playBtn").textContent = "Pause";
-      startDrone();
+    function togglePlay() {
+      if (isPlaying) stopPlay();
+      else startPlay();
+    }
 
-      if (narrAudio.src) {
-        narrAudio.currentTime = currentTime;
-        narrAudio.play().catch(() => {});
+    function startPlay() {
+      ensureAudio();
+      isPlaying = true;
+      freezeSfxPlayed = false;
+      document.getElementById("playBtn").textContent = "Pause";
+      if (hasVideo) {
+        syncVideoToTimeline(currentTime);
+        srcVideo.play().catch(() => {});
       }
       lastRaf = performance.now();
       requestAnimationFrame(tick);
     }
 
-    function stopPlayback() {
+    function stopPlay() {
       isPlaying = false;
-      document.getElementById("playBtn").textContent = "Play Preview";
-      stopDrone();
-      if (!narrAudio.paused) narrAudio.pause();
+      document.getElementById("playBtn").textContent = "Play Short";
+      if (hasVideo && !srcVideo.paused) srcVideo.pause();
     }
 
     function tick(now) {
       if (!isPlaying) return;
       const dt = (now - lastRaf) / 1000;
       lastRaf = now;
-
-      if (narrAudio.src && !narrAudio.paused && Number.isFinite(narrAudio.currentTime)) {
-        currentTime = narrAudio.currentTime;
-      } else {
-        currentTime += dt;
-      }
+      currentTime += dt;
 
       if (currentTime >= totalDuration) {
         currentTime = 0;
-        stopPlayback();
+        stopPlay();
+        syncVideoToTimeline(0);
         drawFrame(0);
         return;
+      }
+
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const inFreeze = currentTime >= freezePoint && currentTime <= freezePoint + hold;
+
+      if (inFreeze) {
+        if (!freezeSfxPlayed) {
+          freezeSfxPlayed = true;
+          playFreezeSfx();
+        }
+        if (hasVideo && !srcVideo.paused) srcVideo.pause();
+      } else if (hasVideo && srcVideo.paused) {
+        syncVideoToTimeline(currentTime);
+        srcVideo.play().catch(() => {});
       }
 
       drawFrame(currentTime);
       requestAnimationFrame(tick);
     }
 
-    function drawStickFigure(x, y, scale, phase, color, pose = "walk") {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(scale, scale);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 5;
-      ctx.lineCap = "round";
-
-      const bob = Math.abs(Math.sin(phase * 2)) * 6;
-      ctx.beginPath();
-      ctx.arc(0, -78 + bob, 16, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(0, -62 + bob);
-      ctx.lineTo(0, -18 + bob);
-      ctx.stroke();
-
-      const armSwing = pose === "think" ? 0.3 : Math.sin(phase) * 0.65;
-      ctx.beginPath();
-      ctx.moveTo(0, -52 + bob);
-      ctx.lineTo(-22 * Math.cos(armSwing), -24 + bob + 16 * Math.sin(armSwing));
-      ctx.moveTo(0, -52 + bob);
-      if (pose === "think") {
-        ctx.lineTo(18, -72 + bob);
-      } else {
-        ctx.lineTo(22 * Math.cos(armSwing), -24 + bob - 16 * Math.sin(armSwing));
-      }
-      ctx.stroke();
-
-      const legSwing = Math.sin(phase) * 0.75;
-      ctx.beginPath();
-      ctx.moveTo(0, -18 + bob);
-      ctx.lineTo(-20 * Math.sin(legSwing), 28);
-      ctx.moveTo(0, -18 + bob);
-      ctx.lineTo(20 * Math.sin(legSwing), 28);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
-    function wrapText(text, maxWidth) {
-      const words = String(text || "").split(/\s+/);
-      const lines = [];
-      let line = "";
-      for (const w of words) {
-        const test = (line + " " + w).trim();
-        if (ctx.measureText(test).width > maxWidth && line) {
-          lines.push(line);
-          line = w;
-        } else {
-          line = test;
-        }
-      }
-      if (line) lines.push(line);
-      return lines.slice(0, 2);
-    }
-
     function drawFrame(t) {
-      const theme = THEMES[document.getElementById("themeSelect").value] || THEMES.survival_sketch;
       const W = canvas.width;
       const H = canvas.height;
-      const adjustedT = t - syncOffsetSec;
+      const hold = parseFloat(document.getElementById("freezeHoldSelect").value) || 1.6;
+      const inFreeze = t >= freezePoint && t <= freezePoint + hold;
+      const postFreezeShake = t > freezePoint + hold && t < freezePoint + hold + 0.35;
 
-      let idx = scenes.findIndex(s => adjustedT >= s.start && adjustedT <= s.end);
-      if (idx === -1) {
-        idx = adjustedT < 0 ? 0 : Math.max(0, scenes.length - 1);
-      }
-      const sc = scenes[idx] || { idx: 0, text: "", headline: "CODED STUDIO", type: "stick_walk", start: 0, end: 1 };
-      const localT = Math.max(0, adjustedT - sc.start);
-      const progress = Math.min(1, localT / Math.max(0.1, sc.end - sc.start));
-
-      if (isPlaying && idx !== lastSceneIdx) {
-        lastSceneIdx = idx;
-        playProceduralSfx(idx % 3 === 0 ? "impact" : "whoosh");
-        document.querySelectorAll(".scene-item").forEach((el, k) => {
-          el.classList.toggle("active", k === idx);
-        });
-      }
-
-      document.getElementById("curTime").textContent = formatTime(t);
-      document.getElementById("sceneBadge").textContent = `Scene ${idx + 1} / ${scenes.length || 1}`;
+      document.getElementById("curTime").textContent = formatSec(t);
       document.getElementById("scrubber").value = Math.round((t / Math.max(0.1, totalDuration)) * 1000);
 
-      ctx.fillStyle = theme.bg;
-      ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = theme.grid;
-      ctx.lineWidth = 1;
-      for (let gx = 0; gx < W; gx += 64) {
-        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
-      }
-      for (let gy = 0; gy < H; gy += 64) {
-        ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
-      }
-
-      const grad = ctx.createRadialGradient(W * 0.5, H * 0.44, 40, W * 0.5, H * 0.44, 460);
-      grad.addColorStop(0, theme.accent + "26");
-      grad.addColorStop(1, "transparent");
-      ctx.fillStyle = grad;
+      ctx.save();
+      ctx.fillStyle = "#05070a";
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = theme.sub;
-      ctx.font = "600 20px system-ui";
-      ctx.textAlign = "left";
-      ctx.fillText(document.getElementById("topicInput").value.toUpperCase().slice(0, 48), 48, 52);
+      // Camera zoom & shake
+      const zoom = inFreeze ? 1.55 : (1.03 + Math.sin(t * 1.4) * 0.02);
+      const shakeX = postFreezeShake ? (Math.random() - 0.5) * 28 : 0;
+      const shakeY = postFreezeShake ? (Math.random() - 0.5) * 28 : 0;
 
-      ctx.fillStyle = theme.accent;
-      ctx.font = "800 36px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(sc.headline, W / 2, 108);
+      const fx = focusX * W;
+      const fy = focusY * H;
 
-      const cx = W / 2;
-      const cy = H * 0.48;
+      ctx.translate(fx + shakeX, fy + shakeY);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-fx, -fy);
 
-      if (sc.type === "stick_walk") {
-        ctx.strokeStyle = theme.sub;
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(240, cy + 56); ctx.lineTo(W - 240, cy + 56); ctx.stroke();
-        const walkX = cx - 120 + progress * 240;
-        drawStickFigure(walkX, cy + 20, 1.35, t * 6, theme.ink, "walk");
-      } else if (sc.type === "crowd_outlier") {
-        for (let k = -3; k <= 3; k++) {
-          if (k === 0) continue;
-          drawStickFigure(cx + k * 115, cy + 25, 0.95, t * 2 + k, theme.sub, "walk");
-        }
-        drawStickFigure(cx, cy + 12, 1.45, t * 4, theme.accent, "think");
-      } else if (sc.type === "brain_network") {
-        const nodes = [
-          [-160, -50], [-70, -110], [65, -105], [165, -40],
-          [-120, 65], [0, 20], [130, 70]
-        ];
-        ctx.strokeStyle = theme.accent + "88";
-        ctx.lineWidth = 3;
-        for (let a = 0; a < nodes.length; a++) {
-          for (let b = a + 1; b < nodes.length; b++) {
-            if ((a + b) % 2 === 0) {
-              ctx.beginPath();
-              ctx.moveTo(cx + nodes[a][0], cy + nodes[a][1]);
-              ctx.lineTo(cx + nodes[b][0], cy + nodes[b][1]);
-              ctx.stroke();
-            }
-          }
-        }
-        nodes.forEach(([nx, ny], nIdx) => {
-          const pulse = 10 + Math.sin(t * 6 + nIdx) * 4;
-          ctx.fillStyle = nIdx % 2 === 0 ? theme.accent : theme.ink;
-          ctx.beginPath();
-          ctx.arc(cx + nx, cy + ny, pulse, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      } else if (sc.type === "rising_chart") {
-        ctx.strokeStyle = theme.sub;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(cx - 240, cy + 90);
-        ctx.lineTo(cx + 240, cy + 90);
-        ctx.moveTo(cx - 240, cy + 90);
-        ctx.lineTo(cx - 240, cy - 110);
-        ctx.stroke();
-
-        ctx.strokeStyle = theme.accent;
+      if (hasVideo && srcVideo.readyState >= 2) {
+        const vw = srcVideo.videoWidth || 1080;
+        const vh = srcVideo.videoHeight || 1920;
+        const scale = Math.max(W / vw, H / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
+        ctx.filter = inFreeze ? "grayscale(100%) contrast(135%)" : "none";
+        ctx.drawImage(srcVideo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        ctx.filter = "none";
+      } else {
+        // Placeholder stage when no video uploaded yet
+        ctx.fillStyle = inFreeze ? "#18181b" : "#111622";
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = "#f59e0b";
         ctx.lineWidth = 6;
         ctx.beginPath();
-        const steps = 24;
-        for (let s = 0; s <= steps * progress; s++) {
-          const f = s / steps;
-          const px = cx - 230 + f * 450;
-          const py = cy + 80 - Math.pow(f, 1.7) * 175;
-          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-      } else if (sc.type === "timeline_clock") {
-        ctx.strokeStyle = theme.ink;
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.arc(cx, cy - 10, 110, 0, Math.PI * 2);
-        ctx.stroke();
-
-        const ang = t * 3.5;
-        ctx.strokeStyle = theme.accent;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - 10);
-        ctx.lineTo(cx + Math.cos(ang) * 85, cy - 10 + Math.sin(ang) * 85);
-        ctx.stroke();
-      } else if (sc.type === "split_compare") {
-        ctx.strokeStyle = theme.sub;
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(cx, cy - 120); ctx.lineTo(cx, cy + 100); ctx.stroke();
-        drawStickFigure(cx - 170, cy + 25, 1.2, t * 3, theme.sub, "walk");
-        drawStickFigure(cx + 170, cy + 15, 1.35, t * 6, theme.accent, "think");
-      } else {
-        ctx.strokeStyle = theme.accent;
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        for (let x = -280; x <= 280; x += 8) {
-          const wave = Math.sin((x + t * 260) * 0.04) * (Math.abs(x) < 70 ? 75 : 14);
-          if (x === -280) ctx.moveTo(cx + x, cy + wave); else ctx.lineTo(cx + x, cy + wave);
-        }
+        ctx.arc(fx, fy, 95, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      ctx.fillStyle = "rgba(5, 7, 12, 0.84)";
-      ctx.fillRect(110, H - 148, W - 220, 96);
-      ctx.strokeStyle = theme.accent + "66";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(110, H - 148, W - 220, 96);
+      // Target reticle marker in preview
+      if (!isPlaying) {
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(fx, fy, 42, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
-      ctx.fillStyle = theme.ink;
-      ctx.font = "600 28px system-ui";
-      ctx.textAlign = "center";
-      const lines = wrapText(sc.text, W - 270);
-      lines.forEach((ln, li) => {
-        ctx.fillText(ln, W / 2, H - 104 + li * 36);
-      });
+      ctx.restore();
 
-      ctx.fillStyle = theme.accent;
-      ctx.fillRect(0, 0, W * (t / Math.max(0.1, totalDuration)), 8);
+      // Vignette overlay during freeze
+      if (inFreeze) {
+        const vig = ctx.createRadialGradient(fx, fy, 120, fx, fy, 950);
+        vig.addColorStop(0, "rgba(0,0,0,0)");
+        vig.addColorStop(1, "rgba(0,0,0,0.78)");
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // Top Hook Caption (Shorts safe zone)
+      const hook = document.getElementById("hookInput").value.trim().toUpperCase();
+      if (hook) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+        ctx.fillRect(60, 150, W - 120, 110);
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "900 44px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(hook.slice(0, 32), W / 2, 220);
+      }
+
+      // Freeze Punchline Banner
+      if (inFreeze) {
+        const punch = document.getElementById("punchInput").value.trim().toUpperCase();
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(70, H - 520, W - 140, 116);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 42px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText((punch || "FREEZE FRAME").slice(0, 30), W / 2, H - 446);
+      }
     }
 
-    async function exportVideo() {
-      if (!scenes.length) rebuildStoryboard();
+    async function exportShort() {
       const btn = document.getElementById("exportBtn");
       const status = document.getElementById("statusMsg");
       const dlWrap = document.getElementById("downloadWrap");
 
-      ensureAudioGraph();
+      ensureAudio();
       btn.disabled = true;
       dlWrap.innerHTML = "";
-      status.textContent = "Recording 16:9 video with Audio + SFX...";
+      status.textContent = "Exporting 9:16 Freeze-Frame Short...";
 
-      const canvasStream = canvas.captureStream(30);
-      const mixedTracks = [
-        ...canvasStream.getVideoTracks(),
-        ...destStreamNode.stream.getAudioTracks()
-      ];
-      const combinedStream = new MediaStream(mixedTracks);
-
+      const vStream = canvas.captureStream(30);
+      const tracks = [...vStream.getVideoTracks()];
+      if (destStreamNode && destStreamNode.stream.getAudioTracks().length) {
+        tracks.push(...destStreamNode.stream.getAudioTracks());
+      }
+      const stream = new MediaStream(tracks);
       const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus"
         : "video/webm";
 
-      const recorder = new MediaRecorder(combinedStream, { mimeType: mime, videoBitsPerSecond: 3500000 });
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4000000 });
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: "video/webm" });
         const url = URL.createObjectURL(blob);
-        dlWrap.innerHTML = `<a class="dl" href="${url}" download="coded_animation_16x9.webm">Download 16:9 Animated Video (.webm)</a>`;
-        status.textContent = "Export complete! Your 16:9 video includes narration + SFX + coded animation.";
+        dlWrap.innerHTML = `<a class="dl" href="${url}" download="freeze_frame_short_9x16.webm">Download 9:16 Short (.webm)</a>`;
+        status.textContent = "Export ready! Tap Download above.";
         btn.disabled = false;
       };
 
       currentTime = 0;
+      syncVideoToTimeline(0);
       recorder.start(250);
-      startPlayback();
+      startPlay();
 
-      const watchEnd = setInterval(() => {
+      const timer = setInterval(() => {
         if (!isPlaying) {
-          clearInterval(watchEnd);
+          clearInterval(timer);
           if (recorder.state !== "inactive") recorder.stop();
         }
       }, 250);
     }
 
-    rebuildStoryboard();
+    recalcDuration();
+    drawFrame(0);
   </script>
 </body>
 </html>
